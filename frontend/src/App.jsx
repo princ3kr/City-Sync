@@ -255,7 +255,10 @@ function HomePage({ onAddToast }) {
           </p>
 
           <CitizenPortal onSubmitted={(data) => {
-            onAddToast({ message: `🎟 Token: ${data.ticket_id} · Status: ${data.status}`, type: 'success' })
+            onAddToast({ 
+              message: data.message || `🎟 Token: ${data.ticket_id} · Status: ${data.status}`, 
+              type: data.message?.includes('!') ? 'success' : 'info' 
+            })
           }} />
         </div>
       </section>

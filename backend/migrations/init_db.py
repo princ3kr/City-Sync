@@ -72,6 +72,10 @@ CREATE INDEX IF NOT EXISTS idx_tickets_category_submitted
 -- Covering index for status + ward queries (officer dashboard)
 CREATE INDEX IF NOT EXISTS idx_tickets_status_ward
     ON tickets (status, ward_id) INCLUDE (priority_score);
+
+-- GIN index for trigram similarity matching on descriptions
+CREATE INDEX IF NOT EXISTS idx_tickets_description_trgm
+    ON tickets USING GIN (description gin_trgm_ops);
 """
 
 
@@ -86,7 +90,8 @@ async def init_database():
         print("📦 Enabling PostGIS extension...")
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology;"))
-        print("   ✓ PostGIS enabled")
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        print("   ✓ PostGIS and Trigram extensions enabled")
 
         # 2. Create all ORM tables
         print("📋 Creating tables...")

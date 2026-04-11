@@ -37,7 +37,11 @@ from shared.schemas import (
     SubmitComplaintResponse,
     TicketListResponse,
 )
+from shared.database import get_db
+from shared.models import Ticket
 from gateway.rate_limiter import check_rate_limit
+from sqlalchemy import select, and_, func
+from ai_pipeline.classifier import classify_complaint
 
 configure_logging(settings.log_level)
 log = get_logger("gateway")
@@ -188,6 +192,71 @@ async def submit_complaint(
         r = await get_redis()
         await r.incr("citysync:metrics:rate_limit_hits")
         raise
+
+    # ── 2.5 Advanced Semantic Duplicate Check ───────────────────────────────
+    # We call AI synchronously here to 'understand' the problem intent & location
+    # for a high-accuracy duplicate search before we publish a new ticket.
+    try:
+        classification = await classify_complaint(trace_id, payload.description, payload.language)
+    except Exception as e:
+        log.warning("duplicate_check_ai_failed", error=str(e))
+        classification = None
+
+    bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": "duplicate"}) 
+
+    async with get_db() as session:
+        # Match using Trigram Similarity (fuzzy matching) + AI Intent/Category
+        # Threshold 0.4 handles "Pothole at SV Rd" vs "Damaged road SV road"
+        stmt = select(Ticket).where(
+            func.similarity(Ticket.description, payload.description) > 0.4
+        )
+        
+        # If AI extract succeeded, refine search by category or location mention
+        if classification:
+            stmt = stmt.where(
+                (Ticket.category == classification.category) |
+                (Ticket.location_mention == classification.location_mention)
+            )
+
+        # Order by most similar first
+        stmt = stmt.order_by(func.similarity(Ticket.description, payload.description).desc()).limit(1)
+        
+        res = await session.execute(stmt)
+        existing = res.scalars().first()
+
+        if existing:
+            is_own = (existing.citizen_token == citizen_token)
+
+            # Resolved/Rejected = ignore/reject without change
+            if existing.status in ("Resolved", "Rejected"):
+                log.info("duplicate_ignored_closed", ticket_id=existing.id, status=existing.status)
+                return SubmitComplaintResponse(
+                    ticket_id=existing.id,
+                    status=existing.status,
+                    message="🔒 This problem was previously resolved or rejected. ID: " + existing.id,
+                    bearer_token=bearer_token
+                )
+
+            # Active = upvote + boost score
+            existing.upvote_count += 1
+            existing.priority_score = min(existing.priority_score + 2.0, 100.0)
+            await session.commit()
+
+            if is_own:
+                msg = f"📍 Problem already exists in our system. ID: {existing.id}"
+                log.info("duplicate_own", ticket_id=existing.id)
+            else:
+                msg = f"📈 This problem was already reported. Priority score has been improved! ID: {existing.id}"
+                log.info("duplicate_other", ticket_id=existing.id)
+            
+            return SubmitComplaintResponse(
+                ticket_id=existing.id,
+                status="Processing", # Frontend expect processing for live view
+                message=msg,
+                bearer_token=bearer_token
+            )
+
+    # ── 3. Assign ticket ID ────────────────────────────────────────────────────
 
     # ── 3. Assign ticket ID ────────────────────────────────────────────────────
     ticket_id = generate_ticket_id()
