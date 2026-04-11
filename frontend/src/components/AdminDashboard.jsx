@@ -154,64 +154,6 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* ── Pipeline Service Health ────────────────────────────────────────── */}
-          <div className="card" style={{ marginBottom: 24, padding: '18px 22px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h3 style={{ fontSize: '0.95rem' }}>⚙️ Pipeline Service Health</h3>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-refreshes every 5s</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                {
-                  key: 'gateway', label: 'Gateway (Port 8000)',
-                  desc: `Submissions received: ${metrics?.request_count ?? 0}  ·  Rate-limited: ${metrics?.rate_limit_hits ?? 0}`,
-                  tech: 'FastAPI + Redis Streams',
-                },
-                {
-                  key: 'routing', label: 'Routing Service (Port 8001)',
-                  desc: routingMetrics
-                    ? `Routes loaded: ${routingMetrics.routes_loaded}  ·  Webhooks/hr: ${routingMetrics.total_webhooks_1h}  ·  Success: ${routingMetrics.webhook_success_rate}%`
-                    : 'Start with: docker compose up routing  OR  python -m routing.main',
-                  tech: 'FastAPI + Celery webhooks',
-                },
-                {
-                  key: 'verification', label: 'Verification Engine (Port 8002)',
-                  desc: verifyMetrics
-                    ? `Step-1 pass: ${verifyMetrics.step1_pass_rate}%  ·  Step-2 pass: ${verifyMetrics.step2_pass_rate}%`
-                    : 'Start with: docker compose up verification  OR  python -m verification.main',
-                  tech: 'gpt-4o vision + PG trigger',
-                },
-              ].map(({ key, label, desc, tech }) => {
-                const status = serviceHealth[key]
-                const dotClass = status === 'online' ? 'service-dot-online'
-                               : status === 'offline' ? 'service-dot-offline'
-                               : 'service-dot-warn'
-                return (
-                  <div key={key} className="service-status-row">
-                    <span className={dotClass} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{label}</span>
-                        <span style={{
-                          fontSize: '0.7rem', fontWeight: 700, padding: '1px 7px',
-                          borderRadius: 'var(--radius-full)',
-                          background: status === 'online' ? 'rgba(34,197,94,0.14)' : 'rgba(100,116,139,0.2)',
-                          color: status === 'online' ? '#4ade80' : '#64748b',
-                          textTransform: 'uppercase', letterSpacing: '0.06em',
-                        }}>
-                          {status === 'checking' ? '…' : status}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: status === 'offline' ? '#f97316' : 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {desc}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>{tech}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
 
           <div className="grid-4" style={{ marginBottom: 32 }}>
             <MetricCard
@@ -300,60 +242,7 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* ── AI Pipeline Stats ─────────────────────────────────────────────── */}
-          <div className="card" style={{ marginBottom: 24 }}>
-            <h3 style={{ marginBottom: 16, fontSize: '1rem' }}>🤖 AI Pipeline Performance</h3>
-            <div className="grid-4">
-              {[
-                { label: 'Classifier', value: metrics?.mock_ai ? 'Mock Mode' : 'gpt-4o-mini', sublabel: 'intent+category+severity', icon: '🧠' },
-                { label: 'Avg Latency', value: '~380ms', sublabel: 'classification + dedup', icon: '⚡' },
-                { label: 'Verifier', value: metrics?.mock_ai ? 'Mock Mode' : 'gpt-4o vision', sublabel: 'before/after comparison', icon: '👁️' },
-                { label: 'Dedup Radius', value: '50m', sublabel: 'PostGIS ST_DWithin', icon: '📍' },
-              ].map((item, i) => (
-                <div key={i} className="card card-sm" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: '1.4rem' }}>{item.icon}</span>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{item.label}</div>
-                    <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '0.95rem' }}>{item.value}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{item.sublabel}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
 
-          {/* ── Architecture Layers ────────────────────────────────────────────── */}
-          <div className="card">
-            <h3 style={{ marginBottom: 16, fontSize: '1rem' }}>🏗 System Architecture — 7 Layers</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { layer: 'L1', name: 'Citizen Interface', tech: 'React PWA + WhatsApp/SMS', color: '#3b82f6' },
-                { layer: 'L2', name: 'Event Streaming', tech: 'Redis Streams (consumer groups)', color: '#8b5cf6' },
-                { layer: 'L3', name: 'AI Processing', tech: 'gpt-4o-mini + PostGIS dedup + priority scorer', color: '#06b6d4' },
-                { layer: 'L3.5', name: 'Routing', tech: 'FastAPI + Celery webhook retry + SendGrid fallback', color: '#14b8a6' },
-                { layer: 'L4', name: 'Privacy Vault', tech: 'HMAC-SHA256 + Gaussian DP noise (ε=2.0/0.5)', color: '#eab308' },
-                { layer: 'L5', name: 'Persistence', tech: 'PostgreSQL 16+PostGIS + MinIO + Redis sorted sets', color: '#f97316' },
-                { layer: 'L5.5', name: 'Verification Engine', tech: 'gpt-4o vision + PG trigger enforcement', color: '#ef4444' },
-                { layer: 'L6', name: 'Presentation', tech: 'React+Vite PWA + Mapbox GL JS + Socket.io', color: '#22c55e' },
-              ].map((item) => (
-                <div key={item.layer} style={{
-                  display: 'flex', alignItems: 'center', gap: 16,
-                  padding: '10px 14px',
-                  background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)',
-                  borderLeft: `3px solid ${item.color}`,
-                }}>
-                  <span style={{
-                    fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem',
-                    color: item.color, minWidth: 36,
-                  }}>
-                    {item.layer}
-                  </span>
-                  <span style={{ fontWeight: 600, fontSize: '0.875rem', minWidth: 180 }}>{item.name}</span>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{item.tech}</span>
-                </div>
-              ))}
-            </div>
-          </div>
         </>
       )}
     </div>

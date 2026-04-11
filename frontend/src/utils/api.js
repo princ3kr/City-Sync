@@ -37,6 +37,9 @@ api.interceptors.response.use((response) => {
 export const submitComplaint = (payload) => api.post('/api/submit', payload)
 export const getTicket       = (ticketId) => api.get(`/api/tickets/${ticketId}`)
 export const listTickets     = (params)   => api.get('/api/tickets', { params })
+export const assignTicket    = (ticketId, assigneeId) =>
+  api.post(`/api/tickets/${ticketId}/assign`, { assignee_id: assigneeId })
+export const listFieldWorkers = () => api.get('/api/field-workers')
 export const upvoteTicket    = (ticketId) => api.post(`/api/upvote?ticket_id=${ticketId}`)
 
 // ── Verification APIs ──────────────────────────────────────────────────────────
@@ -53,5 +56,6 @@ export const getVerifyMetrics = () =>
 
 // ── Demo ───────────────────────────────────────────────────────────────────────
 export const getDemoTokens = () => api.get('/api/demo-tokens')
+export const getMe = () => api.get('/api/me')
 
 export default api

@@ -93,6 +93,17 @@ async def init_database():
         await conn.run_sync(Base.metadata.create_all)
         print("   ✓ All 9 tables created")
 
+        # 2b. Lightweight additive columns (existing DBs that already ran create_all once)
+        await conn.execute(
+            text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_worker_id VARCHAR(80);")
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS idx_tickets_assigned_worker "
+                "ON tickets (assigned_worker_id) WHERE assigned_worker_id IS NOT NULL;"
+            )
+        )
+
         # 3. Create spatial indexes
         print("🗺  Creating spatial indexes...")
         for stmt in SPATIAL_INDEXES_SQL.strip().split(";"):

@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { submitStep2, getVerificationStatus } from '../utils/api'
+import React, { useState, useEffect } from 'react'
+import { submitStep2, getTicket } from '../utils/api'
 
 export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
   // mode: 'citizen' (step 2) | 'fieldworker' (step 1)
@@ -8,6 +8,26 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
   const [response, setResponse] = useState('YES')
   const [photo, setPhoto] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
+  const [ticketStatus, setTicketStatus] = useState(undefined)
+
+  useEffect(() => {
+    if (!ticketId || mode !== 'citizen') return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const res = await getTicket(ticketId)
+        if (!cancelled) setTicketStatus(res.data?.status ?? null)
+      } catch {
+        if (!cancelled) setTicketStatus(false)
+      }
+    }
+    load()
+    const t = setInterval(load, 8000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [ticketId, mode])
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0]
@@ -68,6 +88,30 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
   }
 
   if (mode === 'citizen') {
+    if (ticketStatus === undefined) {
+      return <div className="card skeleton" style={{ height: 120 }} />
+    }
+    if (ticketStatus === false) {
+      return (
+        <div className="card">
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Could not load ticket details for verification.</p>
+        </div>
+      )
+    }
+    if (ticketStatus !== 'Work Complete') {
+      const hint =
+        ticketStatus === 'Resolved'
+          ? 'This ticket is already closed.'
+          : ticketStatus === 'Processing'
+            ? 'AI is still classifying your complaint. Citizen confirmation opens after the field team marks the job complete.'
+            : 'Citizen confirmation opens when the field team marks your complaint as work complete (status: Work Complete).'
+      return (
+        <div className="card">
+          <h3 style={{ marginBottom: 8 }}>🔍 Step 2 — Confirm Resolution</h3>
+          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>{hint}</p>
+        </div>
+      )
+    }
     return (
       <div className="card">
         <h3 style={{ marginBottom: 8 }}>🔍 Step 2 — Confirm Resolution</h3>

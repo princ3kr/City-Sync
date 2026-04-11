@@ -32,9 +32,9 @@ class Settings(BaseSettings):
     minio_bucket: str = Field("citysync")
     minio_secure: bool = Field(False)
 
-    # ── OpenAI ────────────────────────────────────────────────────────────────
-    openai_api_key: str = Field("sk-mock")
-    mock_ai: bool = Field(True)
+    # ── Groq ──────────────────────────────────────────────────────────────────
+    groq_api_key: str = Field("sk-mock")
+    mock_ai: bool = Field(False)
 
     # ── Mapbox ────────────────────────────────────────────────────────────────
     mapbox_token: str = Field("")

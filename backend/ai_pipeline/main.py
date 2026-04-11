@@ -85,7 +85,7 @@ async def process_submission(msg_id: str, data: dict):
         classification = await classify_complaint(ticket_id, description, language)
 
         # Route non-complaints to human review / auto-reply
-        if classification.intent in ("spam", "abuse"):
+        if classification.intent in ("spam", "abuse", "vague"):
             log.info("complaint_rejected", ticket_id=ticket_id, intent=classification.intent)
             await _write_ticket_rejected(ticket_id, citizen_token, classification, data)
             return
@@ -126,6 +126,8 @@ async def process_submission(msg_id: str, data: dict):
             citizen_token=citizen_token,
             lat=lat,
             lng=lng,
+            description=description,
+            ward_id=ward_id,
         )
 
         # ── Step 7: Frequency Monitor ─────────────────────────────────────────

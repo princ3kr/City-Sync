@@ -55,6 +55,12 @@ class TicketListResponse(BaseModel):
     page_size: int
 
 
+class AssignTicketRequest(BaseModel):
+    """Officer assigns a queued ticket to a field worker (dispatch)."""
+
+    assignee_id: str = Field(..., min_length=4, max_length=80)
+
+
 # ── Classification ─────────────────────────────────────────────────────────────
 class ClassificationResult(BaseModel):
     intent: str  # valid_complaint | query | spam | abuse

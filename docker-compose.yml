@@ -198,19 +198,7 @@ services:
     networks:
       - citysync
 
-  # Department Portal (Node/Express)
-  dept-portal:
-    build:
-      context: .
-      dockerfile: Dockerfile.portal
-    container_name: citysync_dept_portal
-    environment:
-      - PORT=3000
-    env_file: .env
-    ports:
-      - "3000:3000"
-    networks:
-      - citysync
+
 
 networks:
   citysync:

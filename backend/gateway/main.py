@@ -20,10 +20,23 @@ from fastapi.responses import JSONResponse
 
 from shared.config import settings
 from shared.logging_config import configure_logging, get_logger, set_trace_id, set_ticket_id
-from shared.auth import create_token, get_current_user
+from shared.auth import (
+    ROLE_HIERARCHY,
+    FIELD_WORKERS,
+    create_token,
+    department_categories_filter,
+    field_worker_label,
+    filter_ticket_fields,
+    get_current_user,
+)
 from shared.privacy import hmac_tokenize, strip_exif
 from shared.redis_client import publish_event, get_redis, Streams, get_top_categories
-from shared.schemas import SubmitComplaintRequest, SubmitComplaintResponse, TicketListResponse
+from shared.schemas import (
+    AssignTicketRequest,
+    SubmitComplaintRequest,
+    SubmitComplaintResponse,
+    TicketListResponse,
+)
 from gateway.rate_limiter import check_rate_limit
 
 configure_logging(settings.log_level)
@@ -109,6 +122,32 @@ def generate_ticket_id() -> str:
     """TKT-XXXXXXXXXX format — 10 alphanumeric chars."""
     suffix = uuid.uuid4().hex[:10].upper()
     return f"TKT-{suffix}"
+
+
+def _require_officer(user: dict) -> None:
+    if ROLE_HIERARCHY.get(user.get("role"), -1) < ROLE_HIERARCHY["officer"]:
+        raise HTTPException(status_code=403, detail="Officer role or higher required")
+
+
+async def _fuzzed_lat_lng_for_ids(session, ticket_ids: list[str]) -> dict[str, tuple[float, float]]:
+    """Read fuzzed map coordinates from PostGIS (officer map + citizen track)."""
+    from sqlalchemy import bindparam, text
+
+    if not ticket_ids:
+        return {}
+    stmt = text("""
+        SELECT id::text AS tid,
+            ST_Y(fuzzed_gps::geometry) AS lat,
+            ST_X(fuzzed_gps::geometry) AS lng
+        FROM tickets
+        WHERE fuzzed_gps IS NOT NULL AND id IN :ids
+    """).bindparams(bindparam("ids", expanding=True))
+    rows = (await session.execute(stmt, {"ids": ticket_ids})).mappings().all()
+    out: dict[str, tuple[float, float]] = {}
+    for r in rows:
+        if r["lat"] is not None and r["lng"] is not None:
+            out[r["tid"]] = (float(r["lat"]), float(r["lng"]))
+    return out
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -234,12 +273,16 @@ async def get_ticket(
     from sqlalchemy import select
     from shared.database import get_db
     from shared.models import Ticket
-    from shared.auth import filter_ticket_fields
 
     async with get_db() as session:
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None and ticket.category not in dept_cats:
+            raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+        coord_map = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
+    lat_lng = coord_map.get(ticket_id)
 
     role = user.get("role", "public")
     ticket_dict = {
@@ -255,7 +298,11 @@ async def get_ticket(
         "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
         "upvote_count": ticket.upvote_count,
         "citizen_token": ticket.citizen_token,
+        "assigned_worker_id": ticket.assigned_worker_id,
+        "assigned_worker_label": field_worker_label(ticket.assigned_worker_id),
     }
+    if lat_lng:
+        ticket_dict["raw_lat"], ticket_dict["raw_lng"] = lat_lng[0], lat_lng[1]
     return filter_ticket_fields(ticket_dict, role)
 
 
@@ -272,7 +319,6 @@ async def list_tickets(
     from sqlalchemy import select
     from shared.database import get_db
     from shared.models import Ticket
-    from shared.auth import filter_ticket_fields
 
     page_size = min(page_size, 100)
     offset = (page - 1) * page_size
@@ -282,12 +328,23 @@ async def list_tickets(
         if ward_id:
             query = query.where(Ticket.ward_id == ward_id)
         if status:
-            query = query.where(Ticket.status == status)
+            if "," in status:
+                parts = [s.strip() for s in status.split(",") if s.strip()]
+                if len(parts) == 1:
+                    query = query.where(Ticket.status == parts[0])
+                else:
+                    query = query.where(Ticket.status.in_(parts))
+            else:
+                query = query.where(Ticket.status == status.strip())
         if category:
             query = query.where(Ticket.category == category)
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None:
+            query = query.where(Ticket.category.in_(dept_cats))
         query = query.order_by(Ticket.priority_score.desc()).offset(offset).limit(page_size)
         result = await session.execute(query)
         tickets = result.scalars().all()
+        coord_map = await _fuzzed_lat_lng_for_ids(session, [t.id for t in tickets])
 
     role = user.get("role", "public")
     filtered = []
@@ -305,10 +362,129 @@ async def list_tickets(
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "upvote_count": t.upvote_count,
             "citizen_token": t.citizen_token,
+            "assigned_worker_id": t.assigned_worker_id,
+            "assigned_worker_label": field_worker_label(t.assigned_worker_id),
         }
+        if t.id in coord_map:
+            td["raw_lat"], td["raw_lng"] = coord_map[t.id][0], coord_map[t.id][1]
         filtered.append(filter_ticket_fields(td, role))
 
     return {"tickets": filtered, "page": page, "page_size": page_size, "total": len(filtered)}
+
+
+@app.get("/api/me")
+async def who_am_i(user: dict = Depends(get_current_user)):
+    """Non-sensitive JWT claims for the UI (demo department scope, etc.)."""
+    return {
+        "sub": user.get("sub"),
+        "role": user.get("role", "public"),
+        "dept_code": user.get("dept_code"),
+        "dept_name": user.get("dept_name"),
+    }
+
+
+@app.get("/api/field-workers")
+async def list_field_workers(user: dict = Depends(get_current_user)):
+    """Demo roster for officer dispatch — production would query HR/workforce DB."""
+    _require_officer(user)
+    return {"workers": FIELD_WORKERS}
+
+
+@app.post("/api/tickets/{ticket_id}/assign")
+async def assign_ticket_to_worker(
+    ticket_id: str,
+    body: AssignTicketRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Officer assigns a Pending (or reassigns In Progress) ticket to a field worker."""
+    from sqlalchemy import text
+
+    _require_officer(user)
+    allowed = {w["worker_id"] for w in FIELD_WORKERS}
+    if body.assignee_id not in allowed:
+        raise HTTPException(status_code=400, detail="Unknown assignee_id — not in field worker roster")
+
+    async with get_db() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None and ticket.category not in dept_cats:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if ticket.status not in ("Pending", "In Progress"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Tickets can only be assigned from the dispatch queue (status Pending or In Progress). Current: '{ticket.status}'",
+            )
+
+        await session.execute(
+            text(
+                """
+                UPDATE tickets SET
+                    status = 'In Progress',
+                    assigned_worker_id = :aid,
+                    updated_at = NOW()
+                WHERE id = :tid
+                """
+            ),
+            {"aid": body.assignee_id, "tid": ticket_id},
+        )
+        await session.refresh(ticket)
+
+    await publish_event(
+        Streams.STATUS_UPDATES,
+        {
+            "ticket_id": ticket_id,
+            "citizen_token": ticket.citizen_token,
+            "status": "In Progress",
+            "category": ticket.category or "",
+            "severity_tier": ticket.severity_tier or "",
+            "priority_score": str(ticket.priority_score or 0),
+            "ward_id": ticket.ward_id or "",
+            "message": f"Assigned to {field_worker_label(body.assignee_id)} — field work has started.",
+        },
+    )
+
+    ward_id = ticket.ward_id or ""
+    await emit_ticket_update(
+        ticket_id,
+        ward_id,
+        {
+            "ticket_id": ticket.id,
+            "category": ticket.category,
+            "severity_tier": ticket.severity_tier,
+            "priority_score": ticket.priority_score,
+            "status": "In Progress",
+            "ward_id": ward_id,
+            "upvote_count": ticket.upvote_count,
+            "assigned_worker_id": body.assignee_id,
+            "assigned_worker_label": field_worker_label(body.assignee_id),
+        },
+    )
+
+    role = user.get("role", "public")
+    ticket_dict = {
+        "ticket_id": ticket.id,
+        "category": ticket.category,
+        "severity": ticket.severity,
+        "severity_tier": ticket.severity_tier,
+        "priority_score": ticket.priority_score,
+        "status": ticket.status,
+        "description": ticket.description,
+        "ward_id": ticket.ward_id,
+        "submitted_at": ticket.submitted_at.isoformat() if ticket.submitted_at else None,
+        "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+        "upvote_count": ticket.upvote_count,
+        "citizen_token": ticket.citizen_token,
+        "assigned_worker_id": ticket.assigned_worker_id,
+        "assigned_worker_label": field_worker_label(ticket.assigned_worker_id),
+    }
+    async with get_db() as session:
+        cmap = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
+    if ticket_id in cmap:
+        ticket_dict["raw_lat"], ticket_dict["raw_lng"] = cmap[ticket_id][0], cmap[ticket_id][1]
+
+    return {"ok": True, "ticket": filter_ticket_fields(ticket_dict, role)}
 
 
 @app.post("/api/upvote")
@@ -398,6 +574,61 @@ async def get_demo_tokens():
         "citizen": citizen_token,
         **DEMO_TOKENS,
     }
+
+
+# ── Internal Webhook Storage ──────────────────────────────────────────────────
+# Stores incoming POST webhooks in Redis since the standalone dept-portal got dropped.
+@app.post("/api/webhook/{dept_code}")
+async def receive_webhook(dept_code: str, request: Request):
+    """Fallback native webhook receptor."""
+    r = await get_redis()
+    raw_body = await request.body()
+    try:
+        import json
+        payload = json.loads(raw_body)
+    except:
+        payload = {"error": "Invalid json"}
+    
+    entry = {
+        "id": int(time.time() * 1000),
+        "dept_code": dept_code,
+        "ticket_id": request.headers.get("x-citysync-ticketid", "unknown"),
+        "signature_valid": bool(request.headers.get("x-citysync-signature")),
+        "attempt": int(request.headers.get("x-citysync-attempt", 1)),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "payload": payload
+    }
+    
+    await r.lpush("citysync:webhooks", json.dumps(entry))
+    await r.ltrim("citysync:webhooks", 0, 199)
+    log.info("webhook_received", dept=dept_code, ticket_id=entry["ticket_id"])
+    return {"status": "accepted", "ticket_id": entry["ticket_id"]}
+
+@app.get("/api/stats/webhooks")
+async def get_webhooks():
+    """Fetch stored webhooks for native dashboard."""
+    r = await get_redis()
+    import json
+    raw_logs = await r.lrange("citysync:webhooks", 0, -1)
+    logs = [json.loads(x) for x in raw_logs]
+    
+    tickets = []
+    # Convert webhooks to pseudo-tickets for the UI
+    for log_item in logs:
+        p = log_item.get("payload", {})
+        tickets.append({
+            "ticket_id": p.get("ticket_id"),
+            "dept_code": log_item.get("dept_code"),
+            "category": p.get("category", "Other"),
+            "severity_tier": p.get("severity_tier", "Low"),
+            "priority_score": float(p.get("priority_score") or 0),
+            "ward_id": p.get("ward_id"),
+            "status": "Accepted",
+            "received_at": log_item.get("received_at")
+        })
+    tickets.sort(key=lambda t: t["priority_score"], reverse=True)
+
+    return {"log": logs, "tickets": tickets}
 
 
 # ── Socket.io emit helpers (called by other services) ─────────────────────────

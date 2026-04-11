@@ -64,21 +64,21 @@ WARDS = [
 # ── Departments ────────────────────────────────────────────────────────────────
 DEPARTMENTS = [
     {"id": str(uuid.uuid4()), "name": "Roads & Infrastructure", "code": "ROADS",
-     "email": "roads@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/roads"},
+     "email": "roads@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/roads"},
     {"id": str(uuid.uuid4()), "name": "Storm Water Drains (SWD)", "code": "SWD",
-     "email": "swd@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swd"},
+     "email": "swd@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/swd"},
     {"id": str(uuid.uuid4()), "name": "Street Lighting", "code": "LIGHTS",
-     "email": "lights@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/lights"},
+     "email": "lights@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/lights"},
     {"id": str(uuid.uuid4()), "name": "Solid Waste Management", "code": "SWM",
-     "email": "swm@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swm"},
+     "email": "swm@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/swm"},
     {"id": str(uuid.uuid4()), "name": "Hydraulic Engineering (Water Supply)", "code": "HYD",
-     "email": "water@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/water"},
+     "email": "water@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/water"},
     {"id": str(uuid.uuid4()), "name": "Electricity Emergency Cell", "code": "ELEC_EMG",
-     "email": "livewire@bestenergy.in", "webhook_url": "http://dept-portal:3000/webhook/emergency"},
+     "email": "livewire@bestenergy.in", "webhook_url": "http://gateway:8000/api/webhook/emergency"},
     {"id": str(uuid.uuid4()), "name": "Fire Brigade & Rescue", "code": "FIRE",
-     "email": "fire@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/fire"},
+     "email": "fire@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/fire"},
     {"id": str(uuid.uuid4()), "name": "Building & Factories", "code": "BLDG",
-     "email": "buildings@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/buildings"},
+     "email": "buildings@bmc.gov.in", "webhook_url": "http://gateway:8000/api/webhook/buildings"},
 ]
 # ── Category → Department mapping (category + NULL ward = default for all wards)
 CATEGORY_DEPARTMENT_MAP = {
@@ -90,6 +90,9 @@ CATEGORY_DEPARTMENT_MAP = {
     "Water Supply": "HYD",
     "Building Hazard": "BLDG",
     "Live Wire": "ELEC_EMG",
+    "Fire Hazard": "FIRE",
+    "Smoke": "FIRE",
+    "Gas Leak": "FIRE",
     "Noise": "ROADS",
     "Other": "ROADS",
 }
@@ -270,6 +273,18 @@ async def seed():
                 "lat": 18.9217, "lng": 72.8347, # Colaba
                 "ward": "MUM-A",
                 "dept": "LIGHTS"
+            },
+            {
+                "id": "TKT-DEMO-FIRE",
+                "category": "Fire Hazard",
+                "description": "Exposed gas line near residential complex. High risk of ignition.",
+                "status": "Pending",
+                "severity": 10,
+                "tier": "Critical",
+                "score": 98.0,
+                "lat": 19.0770, "lng": 72.8447, # Santacruz
+                "ward": "MUM-H-E",
+                "dept": "FIRE"
             }
         ]
 
@@ -326,7 +341,7 @@ async def seed():
         print(f"  • {d['code']:12} → {d['name']}")
     print()
     print("Ward → webhook URL:")
-    print("  All categories route to → http://localhost:3000/webhook/{dept_code}")
+    print("  All categories route to → http://gateway:8000/api/webhook/{dept_code}")
 
     await engine.dispose()
 

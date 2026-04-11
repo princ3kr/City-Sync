@@ -73,6 +73,8 @@ class Ticket(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     routed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Officer dispatch — JWT `sub` of the assigned field worker (demo: field_worker_demo_001)
+    assigned_worker_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
 
     __table_args__ = (
         CheckConstraint("severity BETWEEN 1 AND 10", name="ck_tickets_severity"),

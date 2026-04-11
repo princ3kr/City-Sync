@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, useNavigate } from 'react-router
 import CitizenPortal from './components/CitizenPortal'
 import OfficerMap from './components/OfficerMap'
 import AdminDashboard from './components/AdminDashboard'
+import DeptPortal from './components/DeptPortal'
 import StatusTimeline from './components/StatusTimeline'
 import VerificationPanel from './components/VerificationPanel'
 import { useSocket } from './hooks/useSocket'
@@ -35,13 +36,34 @@ function ToastContainer({ toasts, removeToast }) {
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
 function Nav({ role, setRole, onAddToast }) {
-  const changeRole = (r) => {
+  const changeRole = async (r) => {
+    try {
+      const { data } = await getDemoTokens()
+      const tokenForRole = {
+        citizen: data.citizen,
+        officer: data.officer,
+        admin: data.admin,
+        dept_swd: data.dept_swd,
+        dept_roads: data.dept_roads,
+        dept_fire: data.dept_fire,
+      }[r]
+      if (tokenForRole) localStorage.setItem('citysync_token', tokenForRole)
+    } catch {
+      /* gateway offline — keep existing token */
+    }
     setRole(r)
     localStorage.setItem('citysync_role', r)
     onAddToast({ message: `Switched to ${r} view`, type: 'info' })
   }
 
-  const roleLevel = { citizen: 0, officer: 1, admin: 2 }[role] || 0;
+  const roleLevel = {
+    citizen: 0,
+    officer: 1,
+    dept_swd: 1,
+    dept_roads: 1,
+    dept_fire: 1,
+    admin: 2
+  }[role] || 0
 
   return (
     <nav className="nav">
@@ -73,6 +95,14 @@ function Nav({ role, setRole, onAddToast }) {
               🗺 Officer Map
             </NavLink>
           )}
+          {roleLevel >= 1 && (
+            <NavLink
+              to="/department"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              🏢 Webhooks
+            </NavLink>
+          )}
           {roleLevel >= 2 && (
             <NavLink
               to="/admin"
@@ -84,19 +114,51 @@ function Nav({ role, setRole, onAddToast }) {
         </div>
 
         {/* Role switcher for demo */}
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>DEMO ROLE:</span>
-          {['citizen', 'officer', 'admin'].map(r => (
-            <button
-              key={r}
-              className={`btn btn-sm ${role === r ? 'btn-primary' : 'btn-ghost'}`}
-              style={{ padding: '4px 10px', fontSize: '0.72rem' }}
-              onClick={() => changeRole(r)}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
+        {(() => {
+          const isOfficer = role === 'officer' || role.startsWith('dept_')
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>DEMO LOGIN:</span>
+                {[
+                  { id: 'citizen', label: 'Citizen' },
+                  { id: 'officer', label: 'Officer' },
+                  { id: 'admin', label: 'Admin' },
+                ].map(({ id, label }) => (
+                  <button
+                    key={id}
+                    className={`btn btn-sm ${((id === 'officer' && isOfficer) || role === id) ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ padding: '4px 10px', fontSize: '0.68rem' }}
+                    onClick={() => changeRole(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {isOfficer && (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--accent-blue)', fontWeight: 600 }}>SCOPE:</span>
+                  {[
+                    { id: 'officer', label: 'City-wide' },
+                    { id: 'dept_fire', label: 'Fire Dept' },
+                    { id: 'dept_swd', label: 'SWD' },
+                    { id: 'dept_roads', label: 'Roads' },
+                  ].map(({ id, label }) => (
+                    <button
+                      key={id}
+                      className={`btn btn-sm ${role === id ? 'btn-primary' : 'btn-outline'}`}
+                      style={{ padding: '2px 8px', fontSize: '0.62rem', height: 'auto', minHeight: 0 }}
+                      onClick={() => changeRole(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })()}
       </div>
     </nav>
   )
@@ -239,19 +301,32 @@ function TrackPage() {
   )
 }
 
-function OfficerPage() {
+const OFFICER_SCOPE_LABEL = {
+  officer: 'All departments · city-wide queue',
+  admin: 'Admin (all departments)',
+  dept_swd: 'Storm Water Drains — Flooding & Drainage only',
+  dept_roads: 'Roads & Infrastructure — Potholes & related only',
+  dept_fire: 'Fire Department — Fire Hazards, Smoke & Gas Leaks only',
+  citizen: '',
+}
+
+function OfficerPage({ demoRole }) {
+  const scope = OFFICER_SCOPE_LABEL[demoRole] || OFFICER_SCOPE_LABEL.officer
   return (
     <div className="container" style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
           <h2 style={{ marginBottom: 4 }}>Officer Dashboard</h2>
           <p style={{ fontSize: '0.875rem' }}>Real-time complaint map · Sorted by priority score</p>
+          {scope && (
+            <p style={{ fontSize: '0.78rem', color: 'var(--accent-blue)', marginTop: 6 }}>{scope}</p>
+          )}
         </div>
         <div style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', color: '#ef4444' }}>
           🔒 Officer View · GPS ±30m fuzzed · No PII visible
         </div>
       </div>
-      <OfficerMap />
+      <OfficerMap demoRole={demoRole} />
     </div>
   )
 }
@@ -268,24 +343,28 @@ export default function App() {
   }
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id))
 
-  // ── Auto-init citizen token ─────────────────────────────────────────────────
-  // If no token is stored (first visit, or it was cleared after 401),
-  // silently fetch a fresh demo citizen token so submissions never fail.
+  // ── Demo tokens: align JWT with saved DEMO ROLE (officer map dispatch, etc.)
   useEffect(() => {
-    const stored = localStorage.getItem('citysync_token')
-    if (!stored) {
-      getDemoTokens()
-        .then(res => {
-          const citizenToken = res.data?.citizen
-          if (citizenToken) {
-            localStorage.setItem('citysync_token', citizenToken)
-          }
-        })
-        .catch(() => {
-          // Gateway not reachable — submissions will still work anonymously
-          // because get_current_user returns {role:'public'} for no-token requests
-        })
-    }
+    getDemoTokens()
+      .then((res) => {
+        const data = res.data || {}
+        const storedRole = localStorage.getItem('citysync_role') || 'citizen'
+        const forRole = {
+          citizen: data.citizen,
+          officer: data.officer,
+          admin: data.admin,
+          dept_swd: data.dept_swd,
+          dept_roads: data.dept_roads,
+          dept_fire: data.dept_fire,
+        }[storedRole]
+        if (forRole) localStorage.setItem('citysync_token', forRole)
+        else if (!localStorage.getItem('citysync_token') && data.citizen) {
+          localStorage.setItem('citysync_token', data.citizen)
+        }
+      })
+      .catch(() => {
+        /* gateway offline — anonymous / stale token */
+      })
   }, [])
 
   // Global real-time events → show toasts
@@ -299,7 +378,14 @@ export default function App() {
     }
   }, [lastEvent])
 
-  const roleLevel = { citizen: 0, officer: 1, admin: 2 }[role] || 0;
+  const roleLevel = {
+    citizen: 0,
+    officer: 1,
+    dept_swd: 1,
+    dept_roads: 1,
+    dept_fire: 1,
+    admin: 2
+  }[role] || 0
 
   const AccessDenied = ({ message }) => (
     <div className="container" style={{ padding: '60px 24px', textAlign: 'center' }}>
@@ -317,7 +403,8 @@ export default function App() {
           <Routes>
             <Route path="/"        element={<HomePage onAddToast={addToast} />} />
             <Route path="/track"   element={<TrackPage />} />
-            <Route path="/officer" element={roleLevel >= 1 ? <OfficerPage /> : <AccessDenied message="You must be an Officer or Admin to view the field dashboard." />} />
+            <Route path="/officer" element={roleLevel >= 1 ? <OfficerPage demoRole={role} /> : <AccessDenied message="You must be an Officer or Admin to view the field dashboard." />} />
+            <Route path="/department" element={roleLevel >= 1 ? <DeptPortal /> : <AccessDenied message="You must be an Officer or Admin to view department routing." />} />
             <Route path="/admin"   element={roleLevel >= 2 ? <div className="container" style={{ padding: '24px' }}><AdminDashboard /></div> : <AccessDenied message="You must be an Admin to view system analytics." />} />
           </Routes>
         </main>

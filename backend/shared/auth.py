@@ -24,6 +24,43 @@ ROLE_HIERARCHY = {
     "commissioner": 5,
 }
 
+# Category → municipal department code (must match seed_data.CATEGORY_DEPARTMENT_MAP)
+CATEGORY_TO_DEPT = {
+    "Pothole": "ROADS",
+    "Flooding": "SWD",
+    "Drainage": "SWD",
+    "Street Light": "LIGHTS",
+    "Garbage": "SWM",
+    "Water Supply": "HYD",
+    "Building Hazard": "BLDG",
+    "Live Wire": "ELEC_EMG",
+    "Noise": "ROADS",
+    "Fire Hazard": "FIRE",
+    "Smoke": "FIRE",
+    "Gas Leak": "FIRE",
+    "Other": "ROADS",
+}
+
+
+def categories_for_department(dept_code: str) -> list[str]:
+    """Return complaint categories visible to a department-scoped officer."""
+    return [c for c, d in CATEGORY_TO_DEPT.items() if d == dept_code]
+
+
+def department_categories_filter(user: dict) -> list[str] | None:
+    """
+    If the JWT carries dept_code (demo department login), return allowed categories.
+    None means no extra filter (city-wide officer / admin).
+    """
+    role = user.get("role", "public")
+    if role in ("admin", "commissioner"):
+        return None
+    code = user.get("dept_code")
+    if not code or role != "officer":
+        return None
+    cats = categories_for_department(code)
+    return cats if cats else None
+
 # ── Token creation ─────────────────────────────────────────────────────────────
 def create_token(subject: str, role: str = "citizen", extra: dict | None = None) -> str:
     """Create a JWT token for a citizen or officer."""
@@ -133,6 +170,8 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     if role == "public":
         filtered.pop("description", None)
         filtered.pop("image_key", None)
+        filtered.pop("assigned_worker_id", None)
+        filtered.pop("assigned_worker_label", None)
 
     return filtered
 
@@ -143,4 +182,32 @@ DEMO_TOKENS = {
     "admin": create_token("admin_demo_001", role="admin"),
     "commissioner": create_token("commissioner_demo_001", role="commissioner"),
     "field_worker": create_token("field_worker_demo_001", role="field_worker"),
+    "field_worker_2": create_token("field_worker_demo_002", role="field_worker"),
+    # Department-scoped officers (same role="officer", JWT carries dept_code)
+    "dept_swd": create_token(
+        "dept_officer_swd_demo", role="officer", extra={"dept_code": "SWD", "dept_name": "Storm Water Drains"}
+    ),
+    "dept_roads": create_token(
+        "dept_officer_roads_demo", role="officer", extra={"dept_code": "ROADS", "dept_name": "Roads & Infrastructure"}
+    ),
+    "dept_fire": create_token(
+        "dept_officer_fire_demo", role="officer", extra={"dept_code": "FIRE", "dept_name": "Fire Department"}
+    ),
 }
+
+# Dispatch roster — `worker_id` matches JWT `sub` for each demo field worker token
+FIELD_WORKERS = [
+    {"worker_id": "field_worker_demo_001", "display_name": "Field Crew Alpha"},
+    {"worker_id": "field_worker_demo_002", "display_name": "Field Crew Beta"},
+    {"worker_id": "field_worker_demo_003", "display_name": "Fire Crew 1 - Fort Station"},
+    {"worker_id": "field_worker_demo_004", "display_name": "Rescue Squad 7"},
+]
+
+
+def field_worker_label(worker_id: str | None) -> str | None:
+    if not worker_id:
+        return None
+    for w in FIELD_WORKERS:
+        if w["worker_id"] == worker_id:
+            return w["display_name"]
+    return worker_id

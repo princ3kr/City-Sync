@@ -15,7 +15,7 @@ from shared.schemas import ClassificationResult
 log = get_logger("classifier")
 
 # ── Valid label sets (closed — prevents hallucination) ────────────────────────
-VALID_INTENTS = {"valid_complaint", "query", "spam", "abuse"}
+VALID_INTENTS = {"valid_complaint", "query", "spam", "abuse", "vague"}
 VALID_CATEGORIES = {
     "Pothole", "Flooding", "Drainage", "Street Light", "Garbage",
     "Water Supply", "Building Hazard", "Live Wire", "Noise", "Other"
@@ -24,13 +24,15 @@ VALID_CATEGORIES = {
 SYSTEM_PROMPT = """You are CitySync's civic complaint classifier for Indian municipal bodies.
 Classify the complaint in strict JSON with these exact fields:
 {
-  "intent": "<valid_complaint|query|spam|abuse>",
+  "intent": "<valid_complaint|query|spam|abuse|vague>",
   "category": "<Pothole|Flooding|Drainage|Street Light|Garbage|Water Supply|Building Hazard|Live Wire|Noise|Other>",
   "severity": <integer 1-10>,
   "location_mention": "<extracted place name or null>",
   "confidence": <float 0.0-1.0>,
   "reasoning": "<1 sentence explanation>"
 }
+
+If the user does not provide enough actionable detail to understand what or where the problem is (e.g. "it is broken", "fix the issue"), classify intent as "vague".
 
 Severity guide:
 1-3: Minor inconvenience (small pothole, dim streetlight)
@@ -132,7 +134,10 @@ async def _openai_classify(
     """Call gpt-4o-mini with structured JSON output."""
     from openai import AsyncOpenAI
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = AsyncOpenAI(
+        api_key=settings.groq_api_key,
+        base_url="https://api.groq.com/openai/v1"
+    )
 
     image_context = ""
     messages_content = []
@@ -152,7 +157,7 @@ async def _openai_classify(
 
     t_start = time.perf_counter()
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": messages_content},
@@ -185,7 +190,7 @@ async def _openai_classify(
 
     log.info(
         "openai_classification",
-        model="gpt-4o-mini",
+        model="llama-3.3-70b-versatile",
         category=category,
         severity=result.severity,
         confidence=result.confidence,
@@ -223,7 +228,7 @@ async def classify_complaint(
     else:
         try:
             result, model_meta = await _openai_classify(description, language, image_base64)
-            model_name = "gpt-4o-mini"
+            model_name = "llama-3.3-70b-versatile"
             latency_ms = model_meta.get("latency_ms", 0)
         except Exception as e:
             log.error("openai_classification_failed", error=str(e), ticket_id=ticket_id)
