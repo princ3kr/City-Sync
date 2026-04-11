@@ -2,10 +2,11 @@
 CitySync — Priority Scorer
 Explicit formula from the architecture doc:
 score = (severity × 2.5) + (cluster_size × 4) + (upvote_count × 2)
-      + time_age_boost + weather_boost + trust_modifier
+      + time_age_boost + weather_boost + trust_modifier + keyword_urgency_boost
 
 Tiers: Critical ≥85, High 60-84, Medium 35-59, Low <35
 """
+import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -33,6 +34,57 @@ def get_tier(score: float) -> str:
         if score >= threshold:
             return tier
     return "Low"
+
+
+# ── Keyword Urgency Scoring ────────────────────────────────────────────────────────
+URGENCY_KEYWORDS = {
+    # Tier 1 - Life threatening: adds 35 points if any matched
+    "critical": [
+        "death", "dead", "died", "dying", "kill", "killed", "murder",
+        "collapse", "collapsed", "explosion", "exploded", "electrocution",
+        "electrocuted", "drowning", "drowned", "trapped", "unconscious",
+        "fatality", "fatal",
+    ],
+    # Tier 2 - High urgency: adds 20 points if any matched
+    "high": [
+        "accident", "accidental", "injured", "injury", "injuries", "bleeding",
+        "fire", "burning", "burnt", "flood", "flooded", "flooding",
+        "gas leak", "sewage overflow", "electric shock", "fallen tree",
+        "sinkhole", "ambulance", "hospital", "urgent", "emergency", "immediate",
+    ],
+    # Tier 3 - Moderately severe: adds 10 points if any matched
+    "medium": [
+        "dangerous", "danger", "hazard", "hazardous", "severe", "severely",
+        "major", "serious", "broken pipe", "no water", "no electricity",
+        "power cut", "power outage", "overflow", "blocked drain",
+    ],
+}
+
+
+def get_keyword_urgency_boost(description: Optional[str]) -> tuple[float, list]:
+    """Scan description for urgency keywords. Returns (boost_points, matched_keywords)."""
+    if not description:
+        return 0.0, []
+
+    text_lower = description.lower()
+    matched = []
+    boost = 0.0
+    tier_points = {"critical": 35.0, "high": 20.0, "medium": 10.0}
+
+    for tier, keywords in URGENCY_KEYWORDS.items():
+        tier_matched = False
+        for kw in keywords:
+            if ' ' in kw:
+                found = kw in text_lower
+            else:
+                found = bool(re.search(r'\b' + re.escape(kw) + r'\b', text_lower))
+            if found:
+                matched.append(kw)
+                if not tier_matched:
+                    boost += tier_points[tier]  # Add tier points only once per tier
+                    tier_matched = True
+
+    return min(boost, 65.0), matched  # Hard cap at 65
 
 
 # ── Weather boost (mock — real integration would call Open-Meteo) ─────────────
@@ -111,20 +163,22 @@ async def calculate_priority(
     citizen_token: str,
     lat: Optional[float] = None,
     lng: Optional[float] = None,
+    description: Optional[str] = None,
 ) -> PriorityResult:
     """
     Compute priority score using the explicit CitySync formula.
     """
     # ── Formula components ────────────────────────────────────────────────────
-    severity_pts = severity * 2.5          # max 25
-    cluster_pts = cluster_size * 4.0       # each duplicate adds 4
-    upvote_pts = upvote_count * 2.0        # each upvote adds 2
+    severity_pts = severity * 2.5
+    cluster_pts = cluster_size * 4.0
+    upvote_pts = upvote_count * 2.0
     age_boost = get_time_age_boost(submitted_at)
     weather_boost = await get_weather_boost(lat, lng, category)
     trust_modifier = await get_trust_modifier(citizen_token)
+    keyword_boost, matched_keywords = get_keyword_urgency_boost(description)
 
-    total = severity_pts + cluster_pts + upvote_pts + age_boost + weather_boost + trust_modifier
-    total = max(0.0, total)  # floor at 0
+    total = severity_pts + cluster_pts + upvote_pts + age_boost + weather_boost + trust_modifier + keyword_boost
+    total = max(0.0, total)
     tier = get_tier(total)
 
     breakdown = {
@@ -134,10 +188,13 @@ async def calculate_priority(
         "age_boost": round(age_boost, 1),
         "weather_boost": round(weather_boost, 1),
         "trust_modifier": round(trust_modifier, 1),
+        "keyword_boost": round(keyword_boost, 1),
+        "keywords_matched": matched_keywords,
         "total": round(total, 1),
     }
 
-    log.info("priority_scored", ticket_id=ticket_id, score=round(total, 1), tier=tier, **breakdown)
+    log.info("priority_scored", ticket_id=ticket_id, score=round(total, 1), tier=tier,
+             keyword_boost=round(keyword_boost, 1), keywords=matched_keywords)
 
     # ── Write to DB ───────────────────────────────────────────────────────────
     try:

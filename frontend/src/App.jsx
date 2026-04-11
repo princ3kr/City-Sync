@@ -213,27 +213,36 @@ function TrackPage() {
   const [ticketId, setTicketId] = useState('')
   const [tracking, setTracking] = useState(null)
 
+  const handleTrack = () => {
+    const id = ticketId.trim().toUpperCase()
+    if (id) setTracking(id)
+  }
+
   return (
     <div className="container" style={{ padding: '40px 24px' }}>
       <h2 style={{ marginBottom: 8 }}>Track Your Complaint</h2>
-      <p style={{ marginBottom: 32 }}>Enter your ticket ID to see real-time status and updates.</p>
+      <p style={{ marginBottom: 32, color: 'var(--text-muted)' }}>Enter your ticket ID to see real-time status and updates.</p>
 
-      <div style={{ display: 'flex', gap: 12, maxWidth: 500, marginBottom: 32 }}>
+      <div style={{ display: 'flex', gap: 12, maxWidth: 500, marginBottom: 8 }}>
         <input
           className="input"
           placeholder="TKT-XXXXXXXXXX"
           value={ticketId}
           onChange={e => setTicketId(e.target.value.toUpperCase())}
+          onKeyDown={e => e.key === 'Enter' && ticketId.trim() && handleTrack()}
           style={{ fontFamily: 'monospace', fontWeight: 600 }}
         />
         <button
           className="btn btn-primary"
-          onClick={() => setTracking(ticketId)}
-          disabled={!ticketId.startsWith('TKT-') || ticketId.length < 14}
+          onClick={handleTrack}
+          disabled={!ticketId.trim()}
         >
           Track
         </button>
       </div>
+      <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 32 }}>
+        Tip: Your ticket ID was shown after submitting a complaint. It starts with <code style={{ fontFamily: 'monospace', background: 'var(--bg-card)', padding: '1px 6px', borderRadius: 4 }}>TKT-</code>
+      </p>
 
       {tracking && (
         <div style={{ maxWidth: 600 }}>

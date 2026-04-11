@@ -126,6 +126,7 @@ async def process_submission(msg_id: str, data: dict):
             citizen_token=citizen_token,
             lat=lat,
             lng=lng,
+            description=description,
         )
 
         # ── Step 7: Frequency Monitor ─────────────────────────────────────────
