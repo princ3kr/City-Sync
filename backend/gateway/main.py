@@ -350,6 +350,66 @@ async def upvote_ticket(
     return {"message": "Upvote recorded", "ticket_id": ticket_id, "upvote_count": ticket.upvote_count}
 
 
+@app.patch("/api/tickets/{ticket_id}/assign")
+async def assign_field_worker(
+    ticket_id: str,
+    payload: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Officer assigns a field worker and optionally overrides category/severity."""
+    from shared.database import get_db
+    from shared.models import Ticket
+
+    role = user.get("role", "public")
+    if role not in ("officer", "admin", "commissioner", "supervisor", "field_worker"):
+        raise HTTPException(status_code=403, detail="Officer role required")
+
+    assigned_to = payload.get("assigned_to", "").strip()
+    category    = payload.get("category", "").strip()
+    severity    = payload.get("severity")
+    notes       = payload.get("notes", "").strip()
+
+    if not assigned_to:
+        raise HTTPException(status_code=422, detail="assigned_to is required")
+
+    async with get_db() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        ticket.status = "In Progress"
+        if category:
+            ticket.category = category
+        if severity is not None:
+            ticket.severity = int(severity)
+        # Store assigned_to in description suffix (no separate column yet)
+        existing_desc = ticket.description or ""
+        if notes:
+            ticket.description = f"{existing_desc}\n\n[Officer Notes] {notes}\n[Assigned to] {assigned_to}"
+        else:
+            ticket.description = f"{existing_desc}\n\n[Assigned to] {assigned_to}"
+
+        await session.commit()
+
+    # Emit real-time update
+    from shared.auth import filter_ticket_fields
+    ticket_dict = {
+        "ticket_id": ticket.id, "status": ticket.status,
+        "category": ticket.category, "severity": ticket.severity,
+        "ward_id": ticket.ward_id or "",
+    }
+    await emit_ticket_update(ticket_id, ticket.ward_id or "all", {
+        "type": "ticket.update", "data": ticket_dict
+    })
+
+    return {
+        "message": f"Ticket assigned to {assigned_to}",
+        "ticket_id": ticket_id,
+        "status": "In Progress",
+        "assigned_to": assigned_to,
+    }
+
+
 @app.get("/api/metrics")
 async def get_metrics():
     """Gateway metrics — polled by admin dashboard every 5 seconds."""

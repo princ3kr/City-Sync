@@ -30,6 +30,7 @@ export const upvoteTicket    = (ticketId) => api.post(`/api/upvote?ticket_id=${t
 // ── Verification APIs ──────────────────────────────────────────────────────────
 export const getVerificationStatus = (ticketId) => api.get(`/api/verify/${ticketId}`)
 export const submitStep2           = (payload)  => api.post('/api/verify/step2', payload)
+export const assignTicket          = (ticketId, payload) => api.patch(`/api/tickets/${ticketId}/assign`, payload)
 
 // ── Metrics APIs ───────────────────────────────────────────────────────────────
 export const getMetrics     = () => api.get('/api/metrics')

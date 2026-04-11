@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useTickets } from '../hooks/useTickets'
 import { useSocket } from '../hooks/useSocket'
 import { PriorityBadge, StatusBadge } from './PriorityBadge'
+import { assignTicket } from '../utils/api'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -213,11 +214,74 @@ function OfficerTicketRow({ ticket, onClick, selected }) {
   )
 }
 
-function TicketDetailPanel({ ticket, onClose }) {
-  const { ticket_id, category, severity_tier, priority_score, status, description, ward_id, severity, upvote_count, submitted_at } = ticket
+// ── All complaint categories ──────────────────────────────────────────────────
+const CATEGORIES = [
+  'Roads & Footpaths', 'Water Supply', 'Sewage & Drainage', 'Garbage & Waste',
+  'Street Lighting', 'Electricity', 'Parks & Gardens', 'Noise Pollution',
+  'Air Pollution', 'Flooding', 'Stray Animals', 'Illegal Construction',
+  'Traffic & Signals', 'Public Transport', 'Healthcare', 'Education', 'Other',
+]
+
+// Mock field worker roster (in production, pull from /api/field-workers)
+const FIELD_WORKERS = [
+  { id: 'FW-001', name: 'Rajesh Kumar',   dept: 'Roads',    icon: '🚧' },
+  { id: 'FW-002', name: 'Priya Sharma',   dept: 'Water',    icon: '💧' },
+  { id: 'FW-003', name: 'Amit Patel',     dept: 'Sewage',   icon: '🔧' },
+  { id: 'FW-004', name: 'Sunita Rao',     dept: 'Garbage',  icon: '🗑️' },
+  { id: 'FW-005', name: 'Vikram Singh',   dept: 'Electric', icon: '⚡' },
+  { id: 'FW-006', name: 'Deepa Nair',     dept: 'Parks',    icon: '🌿' },
+  { id: 'FW-007', name: 'Mohan Das',      dept: 'General',  icon: '👷' },
+  { id: 'FW-008', name: 'Kavita Desai',   dept: 'General',  icon: '👷' },
+]
+
+function TicketDetailPanel({ ticket, onClose, onAssigned }) {
+  const { ticket_id, category, severity_tier, priority_score, status, description, ward_id, severity, upvote_count } = ticket
+
+  const [showAssign, setShowAssign]     = useState(false)
+  const [selCategory, setSelCategory]   = useState(category || 'Other')
+  const [selSeverity, setSelSeverity]   = useState(severity || 5)
+  const [selWorker, setSelWorker]       = useState(null)
+  const [notes, setNotes]               = useState('')
+  const [assignState, setAssignState]   = useState('idle') // idle | loading | success | error
+  const [assignMsg, setAssignMsg]       = useState('')
+
+  const handleAssign = async () => {
+    if (!selWorker) return
+    setAssignState('loading')
+    try {
+      const res = await assignTicket(ticket_id, {
+        assigned_to: `${selWorker.name} (${selWorker.id})`,
+        category: selCategory,
+        severity: selSeverity,
+        notes,
+      })
+      setAssignMsg(res.data.message)
+      setAssignState('success')
+      if (onAssigned) onAssigned(ticket_id)
+    } catch (err) {
+      setAssignMsg(err?.response?.data?.detail || 'Assignment failed')
+      setAssignState('error')
+    }
+  }
+
+  if (assignState === 'success') {
+    return (
+      <div className="card" style={{ boxShadow: 'var(--shadow-elevated)', textAlign: 'center', padding: 32 }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>✅</div>
+        <h3 style={{ color: 'var(--tier-low)', marginBottom: 8 }}>Assigned!</h3>
+        <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: 16 }}>{assignMsg}</p>
+        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: '8px 12px', background: 'rgba(34,197,94,0.08)', borderRadius: 'var(--radius-md)' }}>
+          Ticket status updated to <strong>In Progress</strong>
+        </div>
+        <button className="btn btn-outline btn-sm" style={{ marginTop: 16 }} onClick={onClose}>Close</button>
+      </div>
+    )
+  }
+
   return (
-    <div className="card" style={{ boxShadow: 'var(--shadow-elevated)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div className="card" style={{ boxShadow: 'var(--shadow-elevated)', maxHeight: '80vh', overflowY: 'auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
         <h3 style={{ fontSize: '1rem' }}>{category}</h3>
         <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
       </div>
@@ -225,16 +289,123 @@ function TicketDetailPanel({ ticket, onClose }) {
         <PriorityBadge tier={severity_tier} score={priority_score} showScore />
         <StatusBadge status={status} />
       </div>
-      {description && <p style={{ fontSize: '0.85rem', marginBottom: 12 }}>{description}</p>}
+      {description && <p style={{ fontSize: '0.82rem', marginBottom: 12, color: 'var(--text-secondary)' }}>{description.split('[Assigned')[0].trim()}</p>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 16 }}>
         <span>🗺 Ward: {ward_id || '—'}</span>
         <span>⚡ Severity: {severity}/10</span>
         <span>👥 Reports: {upvote_count}</span>
         <span>🆔 {ticket_id}</span>
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button className="btn btn-primary btn-sm btn-full">Assign Field Worker</button>
-      </div>
+
+      {!showAssign ? (
+        <button
+          className="btn btn-primary btn-sm btn-full"
+          onClick={() => setShowAssign(true)}
+        >
+          👷 Assign Field Worker
+        </button>
+      ) : (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 12 }}>📋 Assignment Form</div>
+
+          {/* Category override */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+              CATEGORY
+            </label>
+            <select
+              className="input"
+              style={{ fontSize: '0.82rem', padding: '6px 10px', cursor: 'pointer' }}
+              value={selCategory}
+              onChange={e => setSelCategory(e.target.value)}
+            >
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Severity */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+              SEVERITY: <strong style={{ color: selSeverity >= 8 ? '#ef4444' : selSeverity >= 5 ? '#f97316' : '#22c55e' }}>{selSeverity}/10</strong>
+            </label>
+            <input
+              type="range" min={1} max={10} value={selSeverity}
+              onChange={e => setSelSeverity(Number(e.target.value))}
+              style={{ width: '100%', accentColor: selSeverity >= 8 ? '#ef4444' : selSeverity >= 5 ? '#f97316' : '#22c55e' }}
+            />
+          </div>
+
+          {/* Field Worker picker */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+              ASSIGN TO
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+              {FIELD_WORKERS.map(w => (
+                <button
+                  key={w.id}
+                  onClick={() => setSelWorker(w)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderRadius: 'var(--radius-md)',
+                    background: selWorker?.id === w.id ? 'rgba(99,102,241,0.2)' : 'var(--bg-card)',
+                    border: `1px solid ${selWorker?.id === w.id ? 'var(--accent-blue)' : 'var(--border)'}`,
+                    cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
+                  }}
+                >
+                  <span style={{ fontSize: '1.2rem' }}>{w.icon}</span>
+                  <div>
+                    <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{w.name}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{w.dept} · {w.id}</div>
+                  </div>
+                  {selWorker?.id === w.id && <span style={{ marginLeft: 'auto', color: 'var(--accent-blue)', fontSize: '0.9rem' }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>
+              NOTES (optional)
+            </label>
+            <textarea
+              className="input"
+              rows={2}
+              placeholder="Any special instructions for the field worker..."
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              style={{ resize: 'vertical', fontSize: '0.82rem' }}
+            />
+          </div>
+
+          {assignState === 'error' && (
+            <div style={{ color: 'var(--tier-critical)', fontSize: '0.8rem', marginBottom: 10 }}>
+              ✗ {assignMsg}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-outline btn-sm"
+              style={{ flex: 1 }}
+              onClick={() => { setShowAssign(false); setAssignState('idle') }}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              style={{ flex: 2 }}
+              disabled={!selWorker || assignState === 'loading'}
+              onClick={handleAssign}
+            >
+              {assignState === 'loading' ? (
+                <><div className="spinner" style={{ borderTopColor: '#fff', width: 12, height: 12 }} /> Assigning...</>
+              ) : `Assign to ${selWorker?.name?.split(' ')[0] || '...'}`}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
