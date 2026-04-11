@@ -6,6 +6,7 @@ import AdminDashboard from './components/AdminDashboard'
 import StatusTimeline from './components/StatusTimeline'
 import VerificationPanel from './components/VerificationPanel'
 import { useSocket } from './hooks/useSocket'
+import { getDemoTokens } from './utils/api'
 
 // ── Toast Notifications ────────────────────────────────────────────────────────
 function Toast({ message, type = 'info', onClose }) {
@@ -33,14 +34,14 @@ function ToastContainer({ toasts, removeToast }) {
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
-function Nav({ onAddToast }) {
-  const [role, setRole] = useState(localStorage.getItem('citysync_role') || 'citizen')
-
+function Nav({ role, setRole, onAddToast }) {
   const changeRole = (r) => {
     setRole(r)
     localStorage.setItem('citysync_role', r)
     onAddToast({ message: `Switched to ${r} view`, type: 'info' })
   }
+
+  const roleLevel = { citizen: 0, officer: 1, admin: 2 }[role] || 0;
 
   return (
     <nav className="nav">
@@ -64,18 +65,22 @@ function Nav({ onAddToast }) {
           >
             🔍 Track
           </NavLink>
-          <NavLink
-            to="/officer"
-            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-          >
-            🗺 Officer Map
-          </NavLink>
-          <NavLink
-            to="/admin"
-            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
-          >
-            📊 Admin
-          </NavLink>
+          {roleLevel >= 1 && (
+            <NavLink
+              to="/officer"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              🗺 Officer Map
+            </NavLink>
+          )}
+          {roleLevel >= 2 && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+            >
+              📊 Admin
+            </NavLink>
+          )}
         </div>
 
         {/* Role switcher for demo */}
@@ -99,8 +104,6 @@ function Nav({ onAddToast }) {
 
 // ── Pages ──────────────────────────────────────────────────────────────────────
 function HomePage({ onAddToast }) {
-  const [submitted, setSubmitted] = useState(null)
-
   return (
     <div>
       {/* Hero */}
@@ -189,20 +192,9 @@ function HomePage({ onAddToast }) {
             AI will classify and route it to the correct department automatically
           </p>
 
-          {submitted ? (
-            <div>
-              <CitizenPortal onSubmitted={setSubmitted} />
-              <div style={{ marginTop: 32 }}>
-                <h3 style={{ marginBottom: 16 }}>Track Your Ticket</h3>
-                <StatusTimeline ticketId={submitted.ticket_id} />
-              </div>
-            </div>
-          ) : (
-            <CitizenPortal onSubmitted={data => {
-              setSubmitted(data)
-              onAddToast({ message: `✅ Ticket ${data.ticket_id} submitted!`, type: 'success' })
-            }} />
-          )}
+          <CitizenPortal onSubmitted={(data) => {
+            onAddToast({ message: `🎟 Token: ${data.ticket_id} · Status: ${data.status}`, type: 'success' })
+          }} />
         </div>
       </section>
     </div>
@@ -267,6 +259,7 @@ function OfficerPage() {
 // ── Root App ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [toasts, setToasts] = useState([])
+  const [role, setRole] = useState(localStorage.getItem('citysync_role') || 'citizen')
   let toastId = 0
 
   const addToast = ({ message, type = 'info' }) => {
@@ -274,6 +267,26 @@ export default function App() {
     setToasts(prev => [...prev, { id, message, type }])
   }
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id))
+
+  // ── Auto-init citizen token ─────────────────────────────────────────────────
+  // If no token is stored (first visit, or it was cleared after 401),
+  // silently fetch a fresh demo citizen token so submissions never fail.
+  useEffect(() => {
+    const stored = localStorage.getItem('citysync_token')
+    if (!stored) {
+      getDemoTokens()
+        .then(res => {
+          const citizenToken = res.data?.citizen
+          if (citizenToken) {
+            localStorage.setItem('citysync_token', citizenToken)
+          }
+        })
+        .catch(() => {
+          // Gateway not reachable — submissions will still work anonymously
+          // because get_current_user returns {role:'public'} for no-token requests
+        })
+    }
+  }, [])
 
   // Global real-time events → show toasts
   const { lastEvent } = useSocket()
@@ -286,16 +299,26 @@ export default function App() {
     }
   }, [lastEvent])
 
+  const roleLevel = { citizen: 0, officer: 1, admin: 2 }[role] || 0;
+
+  const AccessDenied = ({ message }) => (
+    <div className="container" style={{ padding: '60px 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🚫</div>
+      <h2 style={{ marginBottom: '8px' }}>Access Denied</h2>
+      <p style={{ color: 'var(--text-muted)' }}>{message}</p>
+    </div>
+  );
+
   return (
     <BrowserRouter>
       <div className="app-layout">
-        <Nav onAddToast={addToast} />
+        <Nav role={role} setRole={setRole} onAddToast={addToast} />
         <main className="page-content">
           <Routes>
             <Route path="/"        element={<HomePage onAddToast={addToast} />} />
             <Route path="/track"   element={<TrackPage />} />
-            <Route path="/officer" element={<OfficerPage />} />
-            <Route path="/admin"   element={<div className="container" style={{ padding: '24px' }}><AdminDashboard /></div>} />
+            <Route path="/officer" element={roleLevel >= 1 ? <OfficerPage /> : <AccessDenied message="You must be an Officer or Admin to view the field dashboard." />} />
+            <Route path="/admin"   element={roleLevel >= 2 ? <div className="container" style={{ padding: '24px' }}><AdminDashboard /></div> : <AccessDenied message="You must be an Admin to view system analytics." />} />
           </Routes>
         </main>
       </div>

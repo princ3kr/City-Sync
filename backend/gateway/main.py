@@ -42,6 +42,9 @@ async def lifespan(app: FastAPI):
     yield
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 app = FastAPI(
     title="CitySync Gateway",
     description="Citizen complaint submission gateway",
@@ -49,6 +52,12 @@ app = FastAPI(
     docs_url="/docs",
     lifespan=lifespan,
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import logging
+    logging.getLogger('gateway').error(f'Validation Error: {exc.body} -> {exc.errors()}')
+    return JSONResponse(status_code=422, content={'detail': exc.errors()})
 
 app.add_middleware(
     CORSMiddleware,
@@ -335,7 +344,7 @@ async def upvote_ticket(
     return {"message": "Upvote recorded", "ticket_id": ticket_id, "upvote_count": ticket.upvote_count}
 
 
-@app.get("/api/metrics")
+@app.get("/api/stats/gateway")
 async def get_metrics():
     """Gateway metrics — polled by admin dashboard every 5 seconds."""
     r = await get_redis()

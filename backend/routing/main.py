@@ -259,7 +259,7 @@ async def get_routing_table(user: dict = Depends(get_current_user)):
     return {"routes": {f"{k[0]}:{k[1]}": v for k, v in _routing_table.items()}, "overrides": _severity_overrides}
 
 
-@app.get("/api/routing/metrics")
+@app.get("/api/stats/routing")
 async def get_routing_metrics():
     from shared.models import WebhookLog
     from sqlalchemy import select, func

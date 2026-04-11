@@ -44,26 +44,46 @@ export default function AdminDashboard() {
   const [ticketsByStatus, setTicketsByStatus] = useState([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
+  // Track which backend services are reachable
+  const [serviceHealth, setServiceHealth] = useState({
+    gateway: 'checking',
+    routing: 'checking',
+    verification: 'checking',
+  })
 
   const fetchAll = async () => {
     try {
-      const [m, lb, rm, vm] = await Promise.all([
-        getMetrics().catch(() => ({ data: {} })),
-        getLeaderboard().catch(() => ({ data: { leaderboard: [] } })),
+      // Run all fetches independently so one failure doesn't block others
+      const [mResult, lbResult, rmResult, vmResult] = await Promise.allSettled([
+        getMetrics(),
+        getLeaderboard(),
         getRoutingMetrics(),
         getVerifyMetrics(),
       ])
 
-      setMetrics(m.data)
-      setLeaderboard(lb.data.leaderboard || [])
-      setRoutingMetrics(rm.data)
-      setVerifyMetrics(vm.data)
+      const mData  = mResult.status  === 'fulfilled' ? mResult.value.data  : {}
+      const lbData = lbResult.status === 'fulfilled' ? lbResult.value.data : { leaderboard: [] }
+      const rmData = rmResult.status === 'fulfilled' ? rmResult.value.data : {}
+      const vmData = vmResult.status === 'fulfilled' ? vmResult.value.data : {}
+
+      setMetrics(mData)
+      setLeaderboard(lbData.leaderboard || [])
+      setRoutingMetrics(Object.keys(rmData).length > 0 ? rmData : null)
+      setVerifyMetrics(Object.keys(vmData).length > 0 ? vmData : null)
       setLastRefresh(new Date())
 
-      // Build status breakdown from tickets
+      // Determine service health
+      setServiceHealth({
+        gateway:      mResult.status === 'fulfilled' ? 'online' : 'offline',
+        routing:      (rmResult.status === 'fulfilled' && Object.keys(rmData).length > 0) ? 'online' : 'offline',
+        verification: (vmResult.status === 'fulfilled' && Object.keys(vmData).length > 0) ? 'online' : 'offline',
+      })
+
+      // Build status breakdown from tickets (DB — only works when AI pipeline has run)
       const statusMap = { Pending: 0, 'In Progress': 0, 'Work Complete': 0, Resolved: 0, Rejected: 0 }
       const res = await listTickets({ page_size: 100 }).catch(() => ({ data: { tickets: [] } }))
-      ;(res.data.tickets || []).forEach(t => {
+      const dbTickets = res.data?.tickets || []
+      dbTickets.forEach(t => {
         if (statusMap[t.status] != null) statusMap[t.status]++
         else statusMap['Pending']++
       })
@@ -117,7 +137,7 @@ export default function AdminDashboard() {
           <div className="grid-4" style={{ marginBottom: 24 }}>
             <MetricCard
               label="Total Requests" value={metrics?.request_count ?? '—'}
-              sublabel="Gateway submissions" color="#3b82f6"
+              sublabel="Gateway submissions (all-time)" color="#3b82f6"
             />
             <MetricCard
               label="P95 Latency" value={metrics?.p95_latency_ms?.toFixed(0) ?? '—'} unit="ms"
@@ -128,19 +148,81 @@ export default function AdminDashboard() {
               sublabel="429 responses" color="#eab308"
             />
             <MetricCard
-              label="Webhook Success" value={routingMetrics?.webhook_success_rate ?? '—'} unit="%"
-              sublabel="Last 1 hour" color="#22c55e"
+              label="Webhook Success"
+              value={routingMetrics ? routingMetrics.webhook_success_rate : '—'} unit={routingMetrics ? '%' : ''}
+              sublabel={routingMetrics ? 'Last 1 hour' : 'Routing service offline'} color="#22c55e"
             />
+          </div>
+
+          {/* ── Pipeline Service Health ────────────────────────────────────────── */}
+          <div className="card" style={{ marginBottom: 24, padding: '18px 22px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h3 style={{ fontSize: '0.95rem' }}>⚙️ Pipeline Service Health</h3>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Auto-refreshes every 5s</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                {
+                  key: 'gateway', label: 'Gateway (Port 8000)',
+                  desc: `Submissions received: ${metrics?.request_count ?? 0}  ·  Rate-limited: ${metrics?.rate_limit_hits ?? 0}`,
+                  tech: 'FastAPI + Redis Streams',
+                },
+                {
+                  key: 'routing', label: 'Routing Service (Port 8001)',
+                  desc: routingMetrics
+                    ? `Routes loaded: ${routingMetrics.routes_loaded}  ·  Webhooks/hr: ${routingMetrics.total_webhooks_1h}  ·  Success: ${routingMetrics.webhook_success_rate}%`
+                    : 'Start with: docker compose up routing  OR  python -m routing.main',
+                  tech: 'FastAPI + Celery webhooks',
+                },
+                {
+                  key: 'verification', label: 'Verification Engine (Port 8002)',
+                  desc: verifyMetrics
+                    ? `Step-1 pass: ${verifyMetrics.step1_pass_rate}%  ·  Step-2 pass: ${verifyMetrics.step2_pass_rate}%`
+                    : 'Start with: docker compose up verification  OR  python -m verification.main',
+                  tech: 'gpt-4o vision + PG trigger',
+                },
+              ].map(({ key, label, desc, tech }) => {
+                const status = serviceHealth[key]
+                const dotClass = status === 'online' ? 'service-dot-online'
+                               : status === 'offline' ? 'service-dot-offline'
+                               : 'service-dot-warn'
+                return (
+                  <div key={key} className="service-status-row">
+                    <span className={dotClass} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--text-primary)' }}>{label}</span>
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: 700, padding: '1px 7px',
+                          borderRadius: 'var(--radius-full)',
+                          background: status === 'online' ? 'rgba(34,197,94,0.14)' : 'rgba(100,116,139,0.2)',
+                          color: status === 'online' ? '#4ade80' : '#64748b',
+                          textTransform: 'uppercase', letterSpacing: '0.06em',
+                        }}>
+                          {status === 'checking' ? '…' : status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: status === 'offline' ? '#f97316' : 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {desc}
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', flexShrink: 0 }}>{tech}</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
 
           <div className="grid-4" style={{ marginBottom: 32 }}>
             <MetricCard
-              label="Step 1 Pass Rate" value={verifyMetrics?.step1_pass_rate ?? '—'} unit="%"
-              sublabel="Field worker photos" color="#8b5cf6"
+              label="Step 1 Pass Rate"
+              value={verifyMetrics ? verifyMetrics.step1_pass_rate : '—'} unit={verifyMetrics ? '%' : ''}
+              sublabel={verifyMetrics ? 'Field worker photos' : 'Verify service offline'} color="#8b5cf6"
             />
             <MetricCard
-              label="Step 2 Pass Rate" value={verifyMetrics?.step2_pass_rate ?? '—'} unit="%"
-              sublabel="Citizen confirmations" color="#06b6d4"
+              label="Step 2 Pass Rate"
+              value={verifyMetrics ? verifyMetrics.step2_pass_rate : '—'} unit={verifyMetrics ? '%' : ''}
+              sublabel={verifyMetrics ? 'Citizen confirmations' : 'Verify service offline'} color="#06b6d4"
             />
             <MetricCard
               label="Webhook Attempts" value={routingMetrics?.total_webhooks_1h ?? '—'}
@@ -153,6 +235,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* ── Charts Row ────────────────────────────────────────────────────── */}
+
           <div className="grid-2" style={{ marginBottom: 32 }}>
             {/* Complaint Frequency Leaderboard */}
             <div className="card">
@@ -166,7 +249,7 @@ export default function AdminDashboard() {
                   <BarChart data={categoryData} margin={{ top: 4, right: 8, bottom: 40, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis
-                      dataKey="category"
+                      dataKey="name"
                       tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
                       angle={-30}
                       textAnchor="end"

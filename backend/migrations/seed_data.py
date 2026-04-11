@@ -91,7 +91,7 @@ CATEGORY_DEPARTMENT_MAP = {
     "Building Hazard": "BLDG",
     "Live Wire": "ELEC_EMG",
     "Noise": "ROADS",
-    "Other": "OTHERS",
+    "Other": "ROADS",
 }
 
 # ── Severity overrides (emergency bypass) ─────────────────────────────────────

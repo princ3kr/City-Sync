@@ -14,14 +14,21 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Auto-refresh token from response and clear on 401
+// Auto-refresh token from response.
+// On 401 (expired/invalid token): clear it and RETRY the request anonymously
+// so the citizen never sees a confusing "token" error.
 api.interceptors.response.use((response) => {
   const newToken = response.data?.bearer_token
   if (newToken) localStorage.setItem('citysync_token', newToken)
   return response
-}, (error) => {
-  if (error.response?.status === 401) {
+}, async (error) => {
+  const originalRequest = error.config
+  if (error.response?.status === 401 && !originalRequest._retried) {
+    // Clear the stale/expired token and retry without auth header
     localStorage.removeItem('citysync_token')
+    originalRequest._retried = true
+    delete originalRequest.headers['Authorization']
+    return api(originalRequest)
   }
   return Promise.reject(error)
 })
@@ -37,12 +44,12 @@ export const getVerificationStatus = (ticketId) => api.get(`/api/verify/${ticket
 export const submitStep2           = (payload)  => api.post('/api/verify/step2', payload)
 
 // ── Metrics APIs ───────────────────────────────────────────────────────────────
-export const getMetrics     = () => api.get('/api/metrics')
+export const getMetrics     = () => api.get('/api/stats/gateway')
 export const getLeaderboard = () => api.get('/api/frequency/leaderboard')
 export const getRoutingMetrics = () =>
-  axios.get(`${import.meta.env.VITE_ROUTING_URL || 'http://localhost:8001'}/api/routing/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_ROUTING_URL || 'http://localhost:8001'}/api/stats/routing`, { timeout: 5000 }).catch(() => ({ data: {} }))
 export const getVerifyMetrics = () =>
-  axios.get(`${import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'}/api/verify/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'}/api/stats/verify`, { timeout: 5000 }).catch(() => ({ data: {} }))
 
 // ── Demo ───────────────────────────────────────────────────────────────────────
 export const getDemoTokens = () => api.get('/api/demo-tokens')

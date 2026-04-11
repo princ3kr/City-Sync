@@ -100,45 +100,178 @@ export default function CitizenPortal({ onSubmitted }) {
       setStep('success')
       onSubmitted?.(response.data)
     } catch (err) {
-      console.error(err)
-      setResult({
-        message: err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
-      })
+      console.error('Submission error:', err)
+
+      // Map HTTP status codes to friendly messages
+      const status = err.response?.status
+      let friendlyMessage = 'Unable to submit. Please check your connection and try again.'
+
+      if (status === 401) {
+        friendlyMessage = 'Session expired. Your token was refreshed — please submit again.'
+      } else if (status === 422) {
+        const details = err.response?.data?.detail
+        if (Array.isArray(details)) {
+          friendlyMessage = details.map(d => d.msg).join('; ')
+        } else {
+          friendlyMessage = 'Invalid submission data. Please check your description.'
+        }
+      } else if (status === 429) {
+        friendlyMessage = 'Too many submissions! Please wait 60 seconds before trying again.'
+      } else if (status === 400) {
+        friendlyMessage = err.response?.data?.detail || 'Bad request — please check your inputs.'
+      } else if (!status) {
+        // Network error / gateway not running
+        friendlyMessage = 'Cannot reach server. Make sure the backend is running on port 8000.'
+      }
+
+      setResult({ message: friendlyMessage })
       setStep('error')
     }
   }
 
-  // ── Success screen ──────────────────────────────────────────────────────────
+  // ── Success Modal Popup ──────────────────────────────────────────────────────
   if (step === 'success' && result) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-        <div style={{ fontSize: '4rem', marginBottom: 16 }}>✅</div>
-        <h2 style={{ color: 'var(--tier-low)', marginBottom: 12 }}>Complaint Received!</h2>
-        <div className="card" style={{ display: 'inline-block', textAlign: 'left', minWidth: 320, marginBottom: 24 }}>
-          <div style={{ marginBottom: 12 }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>TICKET ID</span>
-            <div style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-accent)' }}>
-              {result.ticket_id}
+      <>
+        {/* Modal backdrop */}
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000,
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '16px',
+          animation: 'fadeIn 0.25s ease',
+        }}>
+          {/* Modal card */}
+          <div style={{
+            background: 'linear-gradient(145deg, #0f172a, #1e293b)',
+            border: '1px solid rgba(34,197,94,0.35)',
+            borderRadius: '20px',
+            padding: '40px 36px',
+            maxWidth: 480,
+            width: '100%',
+            boxShadow: '0 0 60px rgba(34,197,94,0.15), 0 24px 64px rgba(0,0,0,0.6)',
+            animation: 'slideUp 0.3s cubic-bezier(0.22,1,0.36,1)',
+            textAlign: 'center',
+          }}>
+            {/* Icon */}
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%',
+              background: 'rgba(34,197,94,0.15)',
+              border: '2px solid rgba(34,197,94,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '2rem', margin: '0 auto 20px',
+            }}>✅</div>
+
+            <h2 style={{ color: '#4ade80', marginBottom: 6, fontSize: '1.4rem' }}>
+              Request Submitted!
+            </h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', marginBottom: 28 }}>
+              {result.message}
+            </p>
+
+            {/* Info grid */}
+            <div style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '12px',
+              padding: '20px',
+              marginBottom: 24,
+              textAlign: 'left',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+            }}>
+              {/* Ticket ID / Token Number */}
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                  🎟 Token / Ticket Number
+                </div>
+                <div style={{
+                  fontFamily: 'monospace', fontSize: '1.35rem', fontWeight: 800,
+                  color: '#60a5fa',
+                  letterSpacing: '0.04em',
+                  background: 'rgba(59,130,246,0.1)',
+                  border: '1px solid rgba(59,130,246,0.25)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  display: 'inline-block',
+                }}>
+                  {result.ticket_id}
+                </div>
+              </div>
+
+              {/* Status */}
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                  📊 Current Status
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: '#22c55e',
+                    boxShadow: '0 0 8px #22c55e',
+                    display: 'inline-block', flexShrink: 0,
+                  }} />
+                  <span style={{ color: '#4ade80', fontWeight: 600, fontSize: '0.95rem' }}>
+                    {result.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Processing time */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '8px 12px',
+                background: 'rgba(99,102,241,0.08)',
+                borderRadius: '8px',
+                fontSize: '0.8rem', color: 'var(--text-muted)',
+              }}>
+                <span>⚡</span>
+                <span>AI classification running in background (~{result.estimated_processing_ms}ms)</span>
+              </div>
+            </div>
+
+            {/* Save ticket note */}
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 20 }}>
+              💡 Save your token number to track status at the <strong style={{ color: 'var(--text-secondary)' }}>Track</strong> page.
+            </p>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  setStep('form'); setDescription(''); setImageFile(null); setImagePreview(null)
+                  setGpsCoords(null); setResult(null)
+                }}
+              >
+                ＋ Submit Another
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  // Copy ticket ID to clipboard
+                  navigator.clipboard?.writeText(result.ticket_id).catch(() => {})
+                  const btn = document.activeElement
+                  if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.textContent = '📋 Copy Token' }, 2000) }
+                }}
+              >
+                📋 Copy Token
+              </button>
             </div>
           </div>
-          <div style={{ marginBottom: 12 }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>STATUS</span>
-            <div style={{ color: 'var(--tier-low)', fontWeight: 600 }}>🔄 {result.status}</div>
-          </div>
-          <p style={{ fontSize: '0.875rem' }}>{result.message}</p>
-          <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            ⏱ AI classification: ~{result.estimated_processing_ms}ms async
-          </div>
         </div>
-        <div>
-          <button className="btn btn-outline btn-sm" onClick={() => {
-            setStep('form'); setDescription(''); setImageFile(null); setImagePreview(null)
-            setGpsCoords(null); setResult(null)
-          }}>
-            Submit Another
-          </button>
+
+        {/* Keep the form rendered behind the modal */}
+        <div style={{ maxWidth: 640, margin: '0 auto', opacity: 0.3, pointerEvents: 'none', userSelect: 'none' }}>
+          <form style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div className="form-group">
+              <label className="form-label">Describe the issue *</label>
+              <textarea className="textarea" rows={4} disabled value={description} readOnly />
+            </div>
+          </form>
         </div>
-      </div>
+      </>
     )
   }
 
@@ -257,8 +390,32 @@ export default function CitizenPortal({ onSubmitted }) {
         </button>
 
         {step === 'error' && (
-          <div style={{ color: 'var(--tier-critical)', textAlign: 'center', fontSize: '0.875rem' }}>
-            ✗ Submission failed: {result?.message || result?.toString() || 'Please check your connection and try again.'}
+          <div style={{
+            background: 'rgba(239,68,68,0.08)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            borderRadius: 'var(--radius-md)',
+            padding: '14px 18px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
+          }}>
+            <span style={{ fontSize: '1.2rem', flexShrink: 0, marginTop: 1 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, color: '#f87171', fontSize: '0.875rem', marginBottom: 4 }}>
+                Submission Failed
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                {result?.message || 'Please check your connection and try again.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{ flexShrink: 0, borderColor: 'rgba(239,68,68,0.4)', color: '#f87171' }}
+              onClick={() => { setStep('form'); setResult(null) }}
+            >
+              Try Again
+            </button>
           </div>
         )}
       </form>

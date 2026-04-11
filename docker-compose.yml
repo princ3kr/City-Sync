@@ -65,6 +65,7 @@ services:
     command: sh -c "python backend/migrations/init_db.py && python backend/migrations/seed_data.py"
     environment:
       - DATABASE_URL=postgresql+asyncpg://citysync:citysync_secret@postgres:5432/citysync
+      - DATABASE_URL_SYNC=postgresql://citysync:citysync_secret@postgres:5432/citysync
     env_file: .env
     depends_on:
       postgres:

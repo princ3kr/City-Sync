@@ -451,7 +451,7 @@ async def health():
     return {"status": "ok", "service": "verification"}
 
 
-@app.get("/api/verify/metrics")
+@app.get("/api/stats/verify")
 async def get_verification_metrics():
     async with get_db() as session:
         result = await session.execute(text("""
@@ -464,11 +464,21 @@ async def get_verification_metrics():
             FROM verification_submissions
         """))
         row = result.fetchone()
+        
+        # Safely extract with 0 defaults
+        s1_pass = row[0] or 0
+        s1_fail = row[1] or 0
+        s1_review = row[2] or 0
+        s2_pass = row[3] or 0
+        
+        s1_total = max(s1_pass + s1_fail + s1_review, 1)
+        # We don't have a total step2 attempts explicitly grouped here, just pass, so using total submitted
         total = row[4] or 1
+
         return {
-            "step1_pass_rate": round((row[0] or 0) / max(row[0]+row[1]+row[2], 1) * 100, 1),
-            "step1_rejection_rate": round((row[1] or 0) / max(row[0]+row[1]+row[2], 1) * 100, 1),
-            "step2_pass_rate": round((row[3] or 0) / max(row[3], 1) * 100, 1),
+            "step1_pass_rate": round(s1_pass / s1_total * 100, 1),
+            "step1_rejection_rate": round(s1_fail / s1_total * 100, 1),
+            "step2_pass_rate": round(s2_pass / max(total, 1) * 100, 1),
         }
 
 
