@@ -53,7 +53,7 @@ EPSILON_OFFICER = 2.0   # ±~30m
 EPSILON_PUBLIC = 0.5    # ±~90m
 
 
-def apply_dp_noise(lat: float, lng: float, epsilon: float) -> tuple[float, float]:
+def apply_dp_noise(lat: float, lng: float, epsilon: float, seed: int | None = None) -> tuple[float, float]:
     """
     Apply Gaussian differential privacy noise to GPS coordinates.
 
@@ -61,18 +61,20 @@ def apply_dp_noise(lat: float, lng: float, epsilon: float) -> tuple[float, float
         lat: raw latitude
         lng: raw longitude
         epsilon: privacy budget (2.0 = officer view, 0.5 = public)
+        seed: optional integer seed for deterministic noise (use ticket_id hash)
 
     Returns:
         (fuzzed_lat, fuzzed_lng)
     """
     sigma = _gaussian_sigma(epsilon)
-    # numpy gaussian noise — two lines
-    fuzzed_lat = float(lat + np.random.normal(0, sigma))
-    fuzzed_lng = float(lng + np.random.normal(0, sigma))
+    # Use a seeded RNG so the same ticket always gets the same fuzz offset
+    rng = np.random.default_rng(seed)
+    fuzzed_lat = float(lat + rng.normal(0, sigma))
+    fuzzed_lng = float(lng + rng.normal(0, sigma))
     return fuzzed_lat, fuzzed_lng
 
 
-def fuzz_for_role(lat: float, lng: float, role: str) -> tuple[float, float]:
+def fuzz_for_role(lat: float, lng: float, role: str, seed: int | None = None) -> tuple[float, float]:
     """
     Role-aware GPS fuzzing.
 
@@ -91,7 +93,7 @@ def fuzz_for_role(lat: float, lng: float, role: str) -> tuple[float, float]:
         "public": 0.5,
     }
     epsilon = epsilon_map.get(role, 0.5)
-    return apply_dp_noise(lat, lng, epsilon)
+    return apply_dp_noise(lat, lng, epsilon, seed=seed)
 
 
 # ── EXIF Stripping ────────────────────────────────────────────────────────────

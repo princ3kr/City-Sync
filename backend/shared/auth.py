@@ -109,7 +109,9 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     """
     Remove or fuzz fields based on caller role.
     Officers see less fuzz than public; admins see slightly less.
+    Fuzzing is deterministic — seeded from ticket_id so markers never jitter.
     """
+    import hashlib
     from shared.privacy import fuzz_for_role
 
     filtered = dict(ticket_dict)
@@ -122,7 +124,13 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     raw_lng = filtered.pop("raw_lng", None)
 
     if raw_lat and raw_lng:
-        fuzzed_lat, fuzzed_lng = fuzz_for_role(raw_lat, raw_lng, role)
+        # Derive a stable integer seed from ticket_id + role so the same ticket
+        # always gets the same fuzz offset — no marker jitter on re-fetch
+        ticket_id = filtered.get("ticket_id", "")
+        seed_bytes = hashlib.sha256(f"{ticket_id}:{role}".encode()).digest()
+        seed = int.from_bytes(seed_bytes[:8], "big")
+
+        fuzzed_lat, fuzzed_lng = fuzz_for_role(raw_lat, raw_lng, role, seed=seed)
         filtered["location"] = {
             "lat": round(fuzzed_lat, 5),
             "lng": round(fuzzed_lng, 5),
