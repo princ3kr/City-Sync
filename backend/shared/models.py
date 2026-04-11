@@ -1,0 +1,237 @@
+"""
+CitySync — SQLAlchemy ORM Models
+All 9 PostgreSQL tables defined here with proper types, constraints, and relationships.
+PostGIS geography columns use GeoAlchemy2.
+"""
+import uuid
+from datetime import datetime, timezone
+from typing import Optional
+
+from geoalchemy2 import Geography
+from sqlalchemy import (
+    ARRAY,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from shared.database import Base
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ── Tickets ───────────────────────────────────────────────────────────────────
+class Ticket(Base):
+    __tablename__ = "tickets"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)  # TKT-XXXXXXXXXX
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    severity: Mapped[int] = mapped_column(Integer, nullable=False)
+    severity_tier: Mapped[str] = mapped_column(String(20), nullable=False)
+    priority_score: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(
+        String(30),
+        default="Pending",
+        nullable=False,
+        index=True,
+    )
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    citizen_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_key: Mapped[Optional[str]] = mapped_column(String(200))
+    ward_id: Mapped[Optional[str]] = mapped_column(String(20), index=True)
+    department_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("departments.id"), nullable=True
+    )
+    cluster_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("ticket_clusters.id"), nullable=True
+    )
+    resolution_log_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("resolution_log.id"), nullable=True
+    )
+    # PostGIS geography — stores fuzzed coordinates (raw GPS never written here)
+    fuzzed_gps: Mapped[Optional[object]] = mapped_column(Geography("POINT", srid=4326))
+    # Raw GPS stored temporarily in Redis for dedup processing — never in DB
+    intent: Mapped[Optional[str]] = mapped_column(String(30))
+    confidence: Mapped[Optional[float]] = mapped_column(Float)
+    upvote_count: Mapped[int] = mapped_column(Integer, default=0)
+    trust_modifier: Mapped[float] = mapped_column(Float, default=0.0)
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    routed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint("severity BETWEEN 1 AND 10", name="ck_tickets_severity"),
+        CheckConstraint(
+            "status IN ('Pending','Processing','In Progress','Work Complete','Resolved','Rejected','Human Review')",
+            name="ck_tickets_status",
+        ),
+    )
+
+
+# ── Departments ───────────────────────────────────────────────────────────────
+class Department(Base):
+    __tablename__ = "departments"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(200))
+    phone: Mapped[Optional[str]] = mapped_column(String(20))
+    webhook_url: Mapped[Optional[str]] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ── Ticket Clusters ───────────────────────────────────────────────────────────
+class TicketCluster(Base):
+    __tablename__ = "ticket_clusters"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    cluster_centroid: Mapped[object] = mapped_column(Geography("POINT", srid=4326), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    canonical_ticket_id: Mapped[str] = mapped_column(
+        String(20), ForeignKey("tickets.id"), nullable=False
+    )
+    member_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ── Ticket Upvotes ─────────────────────────────────────────────────────────────
+class TicketUpvote(Base):
+    __tablename__ = "ticket_upvotes"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=False)
+    citizen_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("ticket_id", "citizen_token", name="uq_upvote_per_citizen"),
+    )
+
+
+# ── Ward Boundaries ────────────────────────────────────────────────────────────
+class Ward(Base):
+    __tablename__ = "wards"
+
+    id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    city: Mapped[str] = mapped_column(String(100), nullable=False)
+    boundary: Mapped[Optional[object]] = mapped_column(Geography("POLYGON", srid=4326))
+
+
+# ── Department Routes ──────────────────────────────────────────────────────────
+class DepartmentRoute(Base):
+    __tablename__ = "department_routes"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    ward_id: Mapped[Optional[str]] = mapped_column(String(20))  # NULL = all wards
+    primary_department_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("departments.id"), nullable=False
+    )
+    # Array of CC department IDs (PostgreSQL native array)
+    cc_department_ids: Mapped[Optional[list]] = mapped_column(ARRAY(String))
+    webhook_url: Mapped[Optional[str]] = mapped_column(String(500))
+    fallback_email: Mapped[Optional[str]] = mapped_column(String(200))
+
+    __table_args__ = (
+        UniqueConstraint("category", "ward_id", name="uq_route_category_ward"),
+    )
+
+
+# ── Severity Overrides ─────────────────────────────────────────────────────────
+class SeverityOverride(Base):
+    __tablename__ = "severity_overrides"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    min_severity: Mapped[int] = mapped_column(Integer, nullable=False)
+    department_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("departments.id"), nullable=False
+    )
+    bypass_ward: Mapped[bool] = mapped_column(Boolean, default=True)
+    reason: Mapped[Optional[str]] = mapped_column(String(200))
+
+
+# ── Webhook Log ────────────────────────────────────────────────────────────────
+class WebhookLog(Base):
+    __tablename__ = "webhook_log"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=False)
+    department_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    webhook_url: Mapped[str] = mapped_column(String(500))
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
+    http_status: Mapped[Optional[int]] = mapped_column(Integer)
+    response_time_ms: Mapped[Optional[float]] = mapped_column(Float)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+# ── Verification Submissions ───────────────────────────────────────────────────
+class VerificationSubmission(Base):
+    __tablename__ = "verification_submissions"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=False, index=True)
+    image_key: Mapped[Optional[str]] = mapped_column(String(200))
+    submitter_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    step: Mapped[int] = mapped_column(Integer, nullable=False)  # 1 or 2
+    ai_score: Mapped[Optional[float]] = mapped_column(Float)
+    result: Mapped[str] = mapped_column(String(20), default="pending")  # pending/pass/fail/review
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ── Resolution Log ─────────────────────────────────────────────────────────────
+class ResolutionLog(Base):
+    __tablename__ = "resolution_log"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=False)
+    resolution_method: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # verified | timeout | commissioner_override
+    verifier_1_token: Mapped[Optional[str]] = mapped_column(String(64))
+    verifier_2_token: Mapped[Optional[str]] = mapped_column(String(64))
+    ai_score: Mapped[Optional[float]] = mapped_column(Float)
+    reason: Mapped[Optional[str]] = mapped_column(Text)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "resolution_method IN ('verified','timeout','commissioner_override')",
+            name="ck_resolution_method",
+        ),
+    )
+
+
+# ── Model Call Log ─────────────────────────────────────────────────────────────
+class ModelCall(Base):
+    __tablename__ = "model_calls"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[Optional[str]] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=True)
+    model: Mapped[str] = mapped_column(String(50), nullable=False)
+    input_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    output_tokens: Mapped[Optional[int]] = mapped_column(Integer)
+    latency_ms: Mapped[Optional[float]] = mapped_column(Float)
+    result_json: Mapped[Optional[dict]] = mapped_column(JSONB)
+    called_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
