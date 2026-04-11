@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { CheckCircle, AlertTriangle, ThumbsUp, ThumbsDown, Camera, X } from 'lucide-react'
 import { submitStep2, getTicket } from '../utils/api'
 
-export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
-  // mode: 'citizen' (step 2) | 'fieldworker' (step 1)
+export default function VerificationPanel({ ticketId, mode = 'citizen', currentStatus }) {
   const [step, setStep] = useState('idle') // idle | submitting | done | error
   const [result, setResult] = useState(null)
   const [response, setResponse] = useState('YES')
   const [photo, setPhoto] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
-  const [ticketStatus, setTicketStatus] = useState(null)
+  const [ticketStatus, setTicketStatus] = useState(currentStatus || null)
+  const [error, setError] = useState(null)
 
   // Poll ticket status to know when to show the verification form
   useEffect(() => {
     if (!ticketId) return
+    if (currentStatus) { setTicketStatus(currentStatus); return }
     const fetchStatus = async () => {
       try {
         const res = await getTicket(ticketId)
@@ -22,7 +25,7 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
     fetchStatus()
     const interval = setInterval(fetchStatus, 8000)
     return () => clearInterval(interval)
-  }, [ticketId])
+  }, [ticketId, currentStatus])
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0]
@@ -34,6 +37,7 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
 
   const handleCitizenSubmit = async () => {
     setStep('submitting')
+    setError(null)
     try {
       let photoBase64 = null
       if (photo && response === 'PHOTO') {
@@ -45,29 +49,39 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
         })
       }
 
-      const res = await submitStep2({
+      const apiRes = await submitStep2({
         ticket_id: ticketId,
         citizen_response: response === 'PHOTO' ? 'NO' : response,
         photo_base64: photoBase64,
+        role: mode,
+        timestamp: new Date().toISOString()
       })
-      setResult(res.data)
+      setResult(apiRes.data)
       setStep('done')
     } catch (err) {
-      console.error(err)
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail)
+      } else {
+        setError('Connection error. Please try again.')
+      }
       setStep('error')
     }
   }
 
-  if (step === 'done' && result) {
-    const isResolved = result.result === 'confirmed'
+  const isWorkComplete = ticketStatus === 'Work Complete'
+  const isResolved = ticketStatus === 'Resolved'
+  const isClosed = ticketStatus === 'Resolved' || ticketStatus === 'Rejected'
+
+  // Completed / closed state
+  if (step === 'done' || isClosed) {
     return (
-      <div className="card" style={{ textAlign: 'center', padding: 32 }}>
-        <div style={{ fontSize: '3rem', marginBottom: 12 }}>{isResolved ? '✅' : '🔄'}</div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="card" style={{ textAlign: 'center', padding: 32 }}>
+        <CheckCircle size={48} color="var(--tier-low)" style={{ margin: '0 auto 12px' }} />
         <h3 style={{ color: isResolved ? 'var(--tier-low)' : 'var(--accent-blue)', marginBottom: 8 }}>
-          {isResolved ? 'Issue Confirmed Resolved!' : 'Issue Reopened'}
+          {isResolved || step === 'done' ? 'Verification Submitted!' : 'Issue Reopened'}
         </h3>
-        <p style={{ fontSize: '0.875rem' }}>{result.message}</p>
-        {result.resolution_method && (
+        <p className="text-sm">Thank you for helping keep the city clean!</p>
+        {result?.resolution_method && (
           <div style={{
             marginTop: 16, padding: '8px 16px',
             background: 'rgba(34,197,94,0.1)',
@@ -78,7 +92,7 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
             Resolution: {result.resolution_method} · Ticket closed
           </div>
         )}
-      </div>
+      </motion.div>
     )
   }
 
@@ -86,15 +100,15 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
   if (mode === 'citizen') {
     if (ticketStatus === 'Resolved') {
       return (
-        <div className="card" style={{ textAlign: 'center', padding: 24 }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>✅</div>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card" style={{ textAlign: 'center', padding: 24 }}>
+          <CheckCircle size={40} color="var(--tier-low)" style={{ margin: '0 auto 8px' }} />
           <h3 style={{ color: 'var(--tier-low)', marginBottom: 4 }}>Issue Resolved</h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>This complaint has been resolved and closed.</p>
-        </div>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>This complaint has been resolved and closed.</p>
+        </motion.div>
       )
     }
 
-    if (ticketStatus !== 'Work Complete') {
+    if (!isWorkComplete) {
       // Status-aware waiting messages
       const statusMessages = {
         'Pending':       { icon: '📥', msg: 'Your complaint has been received and is in the queue.' },
@@ -133,11 +147,16 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
 
     // Status is Work Complete — show the confirmation form
     return (
-      <div className="card">
-        <h3 style={{ marginBottom: 8 }}>🔍 Step 2 — Confirm Resolution</h3>
-        <p style={{ fontSize: '0.875rem', marginBottom: 20 }}>
-          The field team has marked your complaint as complete. Please confirm whether the issue has been resolved.
-        </p>
+      <div className="card" style={{ border: '1px solid var(--accent-teal)', background: 'rgba(20, 184, 166, 0.03)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--grad-teal)', boxShadow: 'var(--glow-teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CheckCircle color="white" size={24} />
+          </div>
+          <div>
+            <h4 style={{ margin: 0 }}>Step 2 — Confirm Resolution</h4>
+            <p className="text-sm" style={{ margin: 0 }}>The field team has marked your complaint as complete. Please confirm.</p>
+          </div>
+        </div>
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
           {['YES', 'NO', 'PHOTO'].map(opt => (
@@ -146,7 +165,7 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
               className={`btn ${response === opt ? 'btn-primary' : 'btn-outline'} btn-full`}
               onClick={() => setResponse(opt)}
             >
-              {opt === 'YES' ? '✅ Yes, Fixed' : opt === 'NO' ? '❌ Not Fixed' : '📸 Send Photo'}
+              {opt === 'YES' ? <><ThumbsUp size={16} /> Yes, Fixed</> : opt === 'NO' ? <><ThumbsDown size={16} /> Not Fixed</> : <><Camera size={16} /> Send Photo</>}
             </button>
           ))}
         </div>
@@ -168,7 +187,8 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
           borderRadius: 'var(--radius-md)', fontSize: '0.78rem',
           color: 'var(--text-muted)', marginBottom: 16,
         }}>
-          ⏱ 72-hour window · If no response, ticket auto-closes as "timeout"
+          <AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} />
+          72-hour window · If no response, ticket auto-closes as "timeout"
         </div>
 
         <button
@@ -181,20 +201,60 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
           ) : 'Submit Response'}
         </button>
 
-        {step === 'error' && (
+        {error && (
           <div style={{ color: 'var(--tier-critical)', marginTop: 12, fontSize: '0.875rem', textAlign: 'center' }}>
-            ✗ Submission failed. Please try again.
+            ✗ {error}
           </div>
         )}
       </div>
     )
   }
 
+  // Fallback — officer/fieldworker quick-verify view
   return (
-    <div className="card">
-      <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-        Field worker verification panel — upload the after-photo via the field worker portal.
-      </p>
+    <div className="card" style={{ border: '1px solid var(--accent-teal)', background: 'rgba(20, 184, 166, 0.03)' }}>
+      <div className="flex gap-12 items-start mb-20">
+        <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--grad-teal)', boxShadow: 'var(--glow-teal)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CheckCircle color="white" size={24} />
+        </div>
+        <div>
+          <h4 style={{ margin: 0 }}>Is it fixed?</h4>
+          <p className="text-sm" style={{ margin: 0 }}>Please tell us if you're happy with the resolution.</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 12 }}>
+        {isWorkComplete ? (
+          <>
+            <button 
+              className="btn btn-teal btn-full" 
+              onClick={() => { setResponse('YES'); handleCitizenSubmit(); }}
+              disabled={step === 'submitting'}
+            >
+              <ThumbsUp size={18} /> Yes, All Good!
+            </button>
+            <button 
+              className="btn btn-outline btn-full" 
+              onClick={() => { setResponse('NO'); handleCitizenSubmit(); }}
+              disabled={step === 'submitting'}
+              style={{ borderColor: 'var(--tier-critical)', color: 'var(--tier-critical)' }}
+            >
+              <ThumbsDown size={18} /> Not Fixed
+            </button>
+          </>
+        ) : (
+          <div className="w-full text-center p-12 card bg-surface text-sm opacity-70 border-dashed" style={{ borderColor: 'var(--border)' }}>
+            Verification will unlock once the field team updates the status to <strong>Work Complete</strong>.
+          </div>
+        )}
+      </div>
+
+      {error && <div className="mt-12 text-center text-xs" style={{ color: 'var(--tier-critical)' }}>{error}</div>}
+      
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        <AlertTriangle size={12} style={{ display: 'inline', marginRight: 4 }} /> 
+        Final confirmation is required before we can officially close this ticket.
+      </div>
     </div>
   )
 }

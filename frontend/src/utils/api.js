@@ -21,6 +21,20 @@ api.interceptors.response.use((response) => {
   return response
 })
 
+const VERIFY_URL = import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'
+
+export const verifyApi = axios.create({
+  baseURL: VERIFY_URL,
+  timeout: 15000,
+})
+
+// Inject bearer token from localStorage for Verification API
+verifyApi.interceptors.request.use((config) => {
+  const token = localStorage.getItem('citysync_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
 // ── Complaint APIs ─────────────────────────────────────────────────────────────
 export const submitComplaint = (payload) => api.post('/api/submit', payload)
 export const getTicket       = (ticketId) => api.get(`/api/tickets/${ticketId}`)
@@ -28,8 +42,10 @@ export const listTickets     = (params)   => api.get('/api/tickets', { params })
 export const upvoteTicket    = (ticketId) => api.post(`/api/upvote?ticket_id=${ticketId}`)
 
 // ── Verification APIs ──────────────────────────────────────────────────────────
-export const getVerificationStatus = (ticketId) => api.get(`/api/verify/${ticketId}`)
-export const submitStep2           = (payload)  => api.post('/api/verify/step2', payload)
+export const getVerificationStatus = (ticketId) => verifyApi.get(`/api/verify/${ticketId}`)
+export const submitStep2           = (payload)  => verifyApi.post('/api/verify/step2', payload)
+
+// ── Assignment APIs ─────────────────────────────────────────────────────────────
 export const assignTicket          = (ticketId, payload) => api.patch(`/api/tickets/${ticketId}/assign`, payload)
 
 // ── Metrics APIs ───────────────────────────────────────────────────────────────
