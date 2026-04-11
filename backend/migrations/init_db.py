@@ -20,18 +20,10 @@ from shared.database import Base
 import shared.models  # noqa — import all models so they register with Base
 
 
-POSTGIS_TRIGGER_SQL = """
--- ─────────────────────────────────────────────────────────────────────────────
--- CitySync Verification Trigger
--- Rejects UPDATE tickets SET status='Resolved' unless:
---   1. resolution_log_id is NOT NULL
---   2. That resolution_log_id exists in resolution_log table
--- This is the core integrity guarantee of the two-step verification system.
--- ─────────────────────────────────────────────────────────────────────────────
+TRIGGER_FUNCTION_SQL = """
 CREATE OR REPLACE FUNCTION enforce_resolution_log()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Only enforce when status changes TO 'Resolved'
     IF NEW.status = 'Resolved' AND (OLD.status IS DISTINCT FROM 'Resolved') THEN
         IF NEW.resolution_log_id IS NULL THEN
             RAISE EXCEPTION 'Cannot set status=Resolved without a resolution_log_id. '
@@ -49,8 +41,13 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+"""
 
+TRIGGER_DROP_SQL = """
 DROP TRIGGER IF EXISTS trg_enforce_resolution ON tickets;
+"""
+
+TRIGGER_CREATE_SQL = """
 CREATE TRIGGER trg_enforce_resolution
     BEFORE UPDATE ON tickets
     FOR EACH ROW
@@ -108,7 +105,9 @@ async def init_database():
 
         # 4. Install the resolution trigger
         print("🔒 Installing verification trigger...")
-        await conn.execute(text(POSTGIS_TRIGGER_SQL))
+        await conn.execute(text(TRIGGER_FUNCTION_SQL))
+        await conn.execute(text(TRIGGER_DROP_SQL))
+        await conn.execute(text(TRIGGER_CREATE_SQL))
         print("   ✓ trg_enforce_resolution installed")
         print()
         print("✅ Database initialisation complete!")

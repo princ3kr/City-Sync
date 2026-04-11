@@ -89,13 +89,15 @@ async def create_cluster(
         # Create cluster record
         await session.execute(
             text("""
-                INSERT INTO ticket_clusters (id, cluster_centroid, category, canonical_ticket_id, member_count)
+                INSERT INTO ticket_clusters (id, cluster_centroid, category, canonical_ticket_id, member_count, created_at, updated_at)
                 VALUES (
                     :id,
                     ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography,
                     :category,
                     :ticket_id,
-                    1
+                    1,
+                    NOW(),
+                    NOW()
                 )
             """),
             {"id": cluster_id, "lat": lat, "lng": lng, "category": category, "ticket_id": ticket_id},

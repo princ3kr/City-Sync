@@ -166,7 +166,7 @@ export default function AdminDashboard() {
                   <BarChart data={categoryData} margin={{ top: 4, right: 8, bottom: 40, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                     <XAxis
-                      dataKey="category"
+                      dataKey="name"
                       tick={{ fill: 'var(--text-muted)', fontSize: 11 }}
                       angle={-30}
                       textAnchor="end"
