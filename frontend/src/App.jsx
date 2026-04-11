@@ -255,9 +255,6 @@ function OfficerPage() {
           <h2 style={{ marginBottom: 4 }}>Officer Dashboard</h2>
           <p style={{ fontSize: '0.875rem' }}>Real-time complaint map · Sorted by priority score</p>
         </div>
-        <div style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', color: '#ef4444' }}>
-          🔒 Officer View · GPS ±30m fuzzed · No PII visible
-        </div>
       </div>
       <OfficerMap />
     </div>

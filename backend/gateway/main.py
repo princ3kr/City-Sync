@@ -220,15 +220,23 @@ async def get_ticket(
     user: dict = Depends(get_current_user),
 ):
     """Get ticket status — response fields filtered by caller role."""
-    from sqlalchemy import select
+    from sqlalchemy import select, func, cast, Float
     from shared.database import get_db
     from shared.models import Ticket
     from shared.auth import filter_ticket_fields
 
     async with get_db() as session:
-        ticket = await session.get(Ticket, ticket_id)
-        if not ticket:
+        # Extract lat/lng from PostGIS fuzzed_gps column
+        query = select(
+            Ticket,
+            func.ST_Y(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lat"),
+            func.ST_X(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lng"),
+        ).where(Ticket.id == ticket_id)
+        result = await session.execute(query)
+        row = result.first()
+        if not row:
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+        ticket, lat, lng = row
 
     role = user.get("role", "public")
     ticket_dict = {
@@ -244,6 +252,8 @@ async def get_ticket(
         "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
         "upvote_count": ticket.upvote_count,
         "citizen_token": ticket.citizen_token,
+        "raw_lat": lat,
+        "raw_lng": lng,
     }
     return filter_ticket_fields(ticket_dict, role)
 
@@ -258,7 +268,7 @@ async def list_tickets(
     user: dict = Depends(get_current_user),
 ):
     """List tickets with optional filters. Results filtered by caller role."""
-    from sqlalchemy import select
+    from sqlalchemy import select, func, cast, Float
     from shared.database import get_db
     from shared.models import Ticket
     from shared.auth import filter_ticket_fields
@@ -267,7 +277,12 @@ async def list_tickets(
     offset = (page - 1) * page_size
 
     async with get_db() as session:
-        query = select(Ticket)
+        # Extract lat/lng from PostGIS fuzzed_gps column
+        query = select(
+            Ticket,
+            func.ST_Y(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lat"),
+            func.ST_X(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lng"),
+        )
         if ward_id:
             query = query.where(Ticket.ward_id == ward_id)
         if status:
@@ -276,11 +291,11 @@ async def list_tickets(
             query = query.where(Ticket.category == category)
         query = query.order_by(Ticket.priority_score.desc()).offset(offset).limit(page_size)
         result = await session.execute(query)
-        tickets = result.scalars().all()
+        rows = result.all()
 
     role = user.get("role", "public")
     filtered = []
-    for t in tickets:
+    for t, lat, lng in rows:
         td = {
             "ticket_id": t.id,
             "category": t.category,
@@ -294,6 +309,8 @@ async def list_tickets(
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "upvote_count": t.upvote_count,
             "citizen_token": t.citizen_token,
+            "raw_lat": lat,
+            "raw_lng": lng,
         }
         filtered.append(filter_ticket_fields(td, role))
 

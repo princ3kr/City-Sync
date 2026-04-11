@@ -2,11 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useTickets } from '../hooks/useTickets'
 import { useSocket } from '../hooks/useSocket'
 import { PriorityBadge, StatusBadge } from './PriorityBadge'
-
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || ''
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 // Mumbai coordinates (default center)
-const DEFAULT_CENTER = [72.8777, 19.0760]
+const DEFAULT_CENTER = [19.0760, 72.8777]
 
 const TIER_COLORS = {
   Critical: '#ef4444',
@@ -20,8 +20,6 @@ export default function OfficerMap() {
   const mapRef = useRef(null)
   const markersRef = useRef({})
   const [selectedTicket, setSelectedTicket] = useState(null)
-  const [mapLoaded, setMapLoaded] = useState(false)
-  const [usingFallback, setUsingFallback] = useState(!MAPBOX_TOKEN)
 
   const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Pending', page_size: 100 })
   const { connected, lastEvent } = useSocket('all')
@@ -30,77 +28,61 @@ export default function OfficerMap() {
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return
 
-    if (!MAPBOX_TOKEN) {
-      setUsingFallback(true)
-      setMapLoaded(true)
-      return
+    const map = L.map(mapContainer.current, {
+      zoomControl: false,
+      attributionControl: false
+    }).setView(DEFAULT_CENTER, 11)
+
+    // Using CartoDB dark matter as a free dark-themed tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(map)
+
+    mapRef.current = map
+
+    return () => {
+      map.remove()
+      mapRef.current = null
     }
-
-    import('mapbox-gl').then(({ default: mapboxgl }) => {
-      mapboxgl.accessToken = MAPBOX_TOKEN
-
-      const map = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: DEFAULT_CENTER,
-        zoom: 11,
-        attributionControl: false,
-      })
-
-      map.on('load', () => {
-        setMapLoaded(true)
-        mapRef.current = map
-      })
-
-      return () => map.remove()
-    }).catch(() => {
-      setUsingFallback(true)
-      setMapLoaded(true)
-    })
   }, [])
 
   // ── Add / update markers ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapLoaded || usingFallback || !mapRef.current) return
+    if (!mapRef.current) return
 
-    import('mapbox-gl').then(({ default: mapboxgl }) => {
-      tickets.forEach(ticket => {
-        const { ticket_id, location, severity_tier, priority_score } = ticket
-        if (!location?.lat || !location?.lng) return
+    tickets.forEach(ticket => {
+      const { ticket_id, location, severity_tier, priority_score } = ticket
+      if (!location?.lat || !location?.lng) return
 
-        const color = TIER_COLORS[severity_tier] || TIER_COLORS.Low
-        const size = Math.max(12, Math.min(30, 10 + (priority_score || 0) / 5))
+      const color = TIER_COLORS[severity_tier] || TIER_COLORS.Low
+      const size = Math.max(12, Math.min(30, 10 + (priority_score || 0) / 5))
 
-        if (markersRef.current[ticket_id]) {
-          // Update existing marker intensity (priority boost animation)
-          const el = markersRef.current[ticket_id].getElement()
-          el.style.width = `${size}px`
-          el.style.height = `${size}px`
-          el.style.borderColor = color
-        } else {
-          // Create new marker
-          const el = document.createElement('div')
-          el.className = 'map-marker'
-          el.style.cssText = `
-            width: ${size}px; height: ${size}px;
-            border-radius: 50%;
-            background: ${color}40;
-            border: 2px solid ${color};
-            cursor: pointer;
-            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: 0 0 ${size}px ${color}60;
-          `
-          el.addEventListener('click', () => setSelectedTicket(ticket))
+      if (markersRef.current[ticket_id]) {
+        // Update existing marker
+        const icon = L.divIcon({
+          className: 'custom-icon',
+          html: `<div class="map-marker" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${color}40; border: 2px solid ${color}; box-shadow: 0 0 ${size}px ${color}60; cursor: pointer;"></div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2]
+        })
+        markersRef.current[ticket_id].setIcon(icon)
+      } else {
+        // Create new marker
+        const icon = L.divIcon({
+          className: 'custom-icon',
+          html: `<div class="map-marker" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${color}40; border: 2px solid ${color}; box-shadow: 0 0 ${size}px ${color}60; cursor: pointer; transition: all 0.4s"></div>`,
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2]
+        })
 
-          const marker = new mapboxgl.Marker({ element: el })
-            .setLngLat([location.lng, location.lat])
-            .addTo(mapRef.current)
+        const marker = L.marker([location.lat, location.lng], { icon })
+          .addTo(mapRef.current)
+          .on('click', () => setSelectedTicket(ticket))
 
-          markersRef.current[ticket_id] = marker
-        }
-      })
+        markersRef.current[ticket_id] = marker
+      }
     })
-  }, [tickets, mapLoaded, usingFallback])
+  }, [tickets])
 
   // ── Real-time WebSocket updates ─────────────────────────────────────────────
   useEffect(() => {
@@ -110,64 +92,14 @@ export default function OfficerMap() {
     }
   }, [lastEvent, addOrUpdateTicket])
 
-  // ── Fallback table view ─────────────────────────────────────────────────────
-  if (usingFallback) {
-    return (
-      <div style={{ padding: '24px 0' }}>
-        <div style={{
-          background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)',
-          borderRadius: 'var(--radius-md)', padding: '12px 16px', marginBottom: 20,
-          fontSize: '0.85rem', color: '#eab308',
-        }}>
-          ⚠️ Mapbox token not configured · Showing officer list view ·
-          Set <code>VITE_MAPBOX_TOKEN</code> in frontend/.env for the full map
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3>Active Tickets — Priority View</h3>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: connected ? 'var(--tier-low)' : 'var(--text-muted)' }}>
-            <span className={`status-dot${connected ? ' live' : ''}`} style={{ background: connected ? '#22c55e' : '#475569' }} />
-            {connected ? 'Live Updates' : 'Polling'}
-          </div>
-        </div>
-
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 80 }} />)}
-          </div>
-        ) : tickets.length === 0 ? (
-          <div className="card" style={{ textAlign: 'center', padding: 48 }}>
-            <div style={{ fontSize: '3rem', marginBottom: 12 }}>🏙️</div>
-            <p>No active tickets. Mumbai looks clean today!</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {tickets.map(ticket => (
-              <OfficerTicketRow
-                key={ticket.ticket_id}
-                ticket={ticket}
-                onClick={() => setSelectedTicket(ticket)}
-                selected={selectedTicket?.ticket_id === ticket.ticket_id}
-              />
-            ))}
-          </div>
-        )}
-
-        {selectedTicket && (
-          <TicketDetailPanel ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
-        )}
-      </div>
-    )
-  }
-
   return (
     <div style={{ position: 'relative', height: 'calc(100vh - 120px)' }}>
       <div ref={mapContainer} style={{ width: '100%', height: '100%', borderRadius: 'var(--radius-lg)' }} />
 
       {/* Overlay Controls */}
-      <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div className="card card-sm" style={{ minWidth: 200 }}>
-          <div style={{ display: 'flex', align: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 1000 }}>
+        <div className="card card-sm" style={{ minWidth: 200, background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span className={`status-dot${connected ? ' live' : ''}`} style={{ background: connected ? '#22c55e' : '#f97316' }} />
             <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{connected ? 'Live' : 'Connecting...'}</span>
           </div>
@@ -176,7 +108,7 @@ export default function OfficerMap() {
           </div>
         </div>
         {/* Legend */}
-        <div className="card card-sm">
+        <div className="card card-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>PRIORITY</div>
           {Object.entries(TIER_COLORS).map(([tier, color]) => (
             <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontSize: '0.78rem' }}>
@@ -188,7 +120,7 @@ export default function OfficerMap() {
       </div>
 
       {selectedTicket && (
-        <div style={{ position: 'absolute', bottom: 24, right: 24, width: 360 }}>
+        <div style={{ position: 'absolute', bottom: 24, right: 24, width: 360, zIndex: 1000 }}>
           <TicketDetailPanel ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
         </div>
       )}

@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useRef } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { submitComplaint } from '../utils/api'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 const CATEGORIES = [
   { value: 'Pothole',         icon: '🕳️', label: 'Pothole' },
@@ -201,7 +203,7 @@ export default function CitizenPortal({ onSubmitted }) {
           )}
         </div>
 
-        {/* GPS */}
+        {/* Location Picker */}
         <div className="form-group">
           <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
@@ -213,16 +215,24 @@ export default function CitizenPortal({ onSubmitted }) {
             Share Location (improves routing accuracy)
           </label>
           {useGPS && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <button type="button" className="btn btn-outline btn-sm" onClick={captureGPS}>
-                📍 Capture GPS
-              </button>
-              {gpsCoords && (
-                <span style={{ color: 'var(--tier-low)', fontSize: '0.8rem' }}>
-                  ✓ {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
-                </span>
-              )}
-              {gpsError && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{gpsError}</span>}
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                <button type="button" className="btn btn-outline btn-sm" onClick={captureGPS}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  📍 Use My Current Location
+                </button>
+                {gpsCoords && (
+                  <span style={{ color: 'var(--tier-low)', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                    ✓ {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                  </span>
+                )}
+                {gpsError && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{gpsError}</span>}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 8 }}>
+                Or click on the map to set location manually
+              </div>
+              <LocationPickerMap gpsCoords={gpsCoords} setGpsCoords={setGpsCoords} />
             </div>
           )}
         </div>
@@ -244,7 +254,7 @@ export default function CitizenPortal({ onSubmitted }) {
         <button
           type="submit"
           className="btn btn-primary btn-lg btn-full"
-          disabled={step === 'submitting' || !description.trim()}
+          disabled={step === 'submitting' || description.trim().length < 5}
         >
           {step === 'submitting' ? (
             <><div className="spinner" style={{ borderTopColor: '#fff' }} /> Submitting...</>
@@ -260,5 +270,98 @@ export default function CitizenPortal({ onSubmitted }) {
         )}
       </form>
     </div>
+  )
+}
+
+// ── Location Picker Map Component ────────────────────────────────────────────
+function LocationPickerMap({ gpsCoords, setGpsCoords }) {
+  const mapContainerRef = useRef(null)
+  const mapRef = useRef(null)
+  const markerRef = useRef(null)
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return
+
+    const defaultCenter = gpsCoords ? [gpsCoords.lat, gpsCoords.lng] : [19.0760, 72.8777]
+
+    const map = L.map(mapContainerRef.current, {
+      zoomControl: true,
+      attributionControl: false
+    }).setView(defaultCenter, gpsCoords ? 15 : 11)
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19
+    }).addTo(map)
+
+    // If we already have coords, place a marker
+    if (gpsCoords) {
+      const icon = L.divIcon({
+        className: 'custom-icon',
+        html: '<div style="width:20px;height:20px;border-radius:50%;background:rgba(99,102,241,0.4);border:3px solid #6366f1;box-shadow:0 0 12px rgba(99,102,241,0.6);"></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      })
+      markerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon }).addTo(map)
+    }
+
+    // Click to set location
+    map.on('click', (e) => {
+      const { lat, lng } = e.latlng
+      setGpsCoords({ lat, lng })
+
+      const icon = L.divIcon({
+        className: 'custom-icon',
+        html: '<div style="width:20px;height:20px;border-radius:50%;background:rgba(99,102,241,0.4);border:3px solid #6366f1;box-shadow:0 0 12px rgba(99,102,241,0.6);"></div>',
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+      })
+
+      if (markerRef.current) {
+        markerRef.current.setLatLng([lat, lng])
+      } else {
+        markerRef.current = L.marker([lat, lng], { icon }).addTo(map)
+      }
+    })
+
+    mapRef.current = map
+
+    return () => {
+      map.remove()
+      mapRef.current = null
+      markerRef.current = null
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update marker when gpsCoords change externally (e.g. from "Use My Current Location")
+  useEffect(() => {
+    if (!mapRef.current || !gpsCoords) return
+
+    const icon = L.divIcon({
+      className: 'custom-icon',
+      html: '<div style="width:20px;height:20px;border-radius:50%;background:rgba(99,102,241,0.4);border:3px solid #6366f1;box-shadow:0 0 12px rgba(99,102,241,0.6);"></div>',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10]
+    })
+
+    if (markerRef.current) {
+      markerRef.current.setLatLng([gpsCoords.lat, gpsCoords.lng])
+    } else {
+      markerRef.current = L.marker([gpsCoords.lat, gpsCoords.lng], { icon }).addTo(mapRef.current)
+    }
+
+    mapRef.current.flyTo([gpsCoords.lat, gpsCoords.lng], 15, { duration: 1 })
+  }, [gpsCoords])
+
+  return (
+    <div
+      ref={mapContainerRef}
+      style={{
+        width: '100%',
+        height: 280,
+        borderRadius: 'var(--radius-md)',
+        border: '1px solid var(--border)',
+        overflow: 'hidden',
+      }}
+    />
   )
 }
