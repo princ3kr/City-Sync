@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useTickets } from '../hooks/useTickets'
 import { useSocket } from '../hooks/useSocket'
 import { PriorityBadge, StatusBadge } from './PriorityBadge'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
-// Mumbai coordinates (default center)
-const DEFAULT_CENTER = [19.0760, 72.8777]
+// India center as fallback (will auto-fit to markers)
+const DEFAULT_CENTER = [20.5937, 78.9629]
 
 const TIER_COLORS = {
   Critical: '#ef4444',
@@ -19,10 +19,13 @@ export default function OfficerMap() {
   const mapContainer = useRef(null)
   const mapRef = useRef(null)
   const markersRef = useRef({})
+  const [mapReady, setMapReady] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState(null)
 
   const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Pending', page_size: 100 })
   const { connected, lastEvent } = useSocket('all')
+
+  const ticketsWithLocation = tickets.filter(t => t.location?.lat && t.location?.lng)
 
   // ── Initialize Map ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -31,58 +34,82 @@ export default function OfficerMap() {
     const map = L.map(mapContainer.current, {
       zoomControl: false,
       attributionControl: false
-    }).setView(DEFAULT_CENTER, 11)
+    }).setView(DEFAULT_CENTER, 5)
 
-    // Using CartoDB dark matter as a free dark-themed tile layer
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19
     }).addTo(map)
 
     mapRef.current = map
+    setMapReady(true)
 
     return () => {
       map.remove()
       mapRef.current = null
+      setMapReady(false)
     }
   }, [])
 
   // ── Add / update markers ────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapRef.current) return
+    if (!mapReady || !mapRef.current) return
+    if (tickets.length === 0) return
 
-    tickets.forEach(ticket => {
+    const validTickets = tickets.filter(t => t.location?.lat && t.location?.lng)
+    if (validTickets.length === 0) return
+
+    const bounds = []
+
+    validTickets.forEach(ticket => {
       const { ticket_id, location, severity_tier, priority_score } = ticket
-      if (!location?.lat || !location?.lng) return
-
       const color = TIER_COLORS[severity_tier] || TIER_COLORS.Low
-      const size = Math.max(12, Math.min(30, 10 + (priority_score || 0) / 5))
+      const size = Math.max(14, Math.min(32, 10 + (priority_score || 0) / 5))
+
+      const iconHtml = `
+        <div style="
+          width: ${size}px; height: ${size}px;
+          border-radius: 50%;
+          background: ${color}50;
+          border: 2.5px solid ${color};
+          box-shadow: 0 0 ${size}px ${color}80, 0 0 6px ${color};
+          cursor: pointer;
+          transition: all 0.3s;
+          position: relative;
+        ">
+          <div style="
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: ${size * 0.35}px; height: ${size * 0.35}px;
+            border-radius: 50%;
+            background: ${color};
+          "></div>
+        </div>`
+
+      const icon = L.divIcon({
+        className: '',
+        html: iconHtml,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
+      })
+
+      bounds.push([location.lat, location.lng])
 
       if (markersRef.current[ticket_id]) {
-        // Update existing marker
-        const icon = L.divIcon({
-          className: 'custom-icon',
-          html: `<div class="map-marker" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${color}40; border: 2px solid ${color}; box-shadow: 0 0 ${size}px ${color}60; cursor: pointer;"></div>`,
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2]
-        })
         markersRef.current[ticket_id].setIcon(icon)
       } else {
-        // Create new marker
-        const icon = L.divIcon({
-          className: 'custom-icon',
-          html: `<div class="map-marker" style="width: ${size}px; height: ${size}px; border-radius: 50%; background: ${color}40; border: 2px solid ${color}; box-shadow: 0 0 ${size}px ${color}60; cursor: pointer; transition: all 0.4s"></div>`,
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2]
-        })
-
         const marker = L.marker([location.lat, location.lng], { icon })
           .addTo(mapRef.current)
           .on('click', () => setSelectedTicket(ticket))
-
         markersRef.current[ticket_id] = marker
       }
     })
-  }, [tickets])
+
+    // Auto-fit map to show all markers
+    if (bounds.length > 0) {
+      mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 })
+    }
+  }, [tickets, mapReady])
 
   // ── Real-time WebSocket updates ─────────────────────────────────────────────
   useEffect(() => {
@@ -103,9 +130,23 @@ export default function OfficerMap() {
             <span className={`status-dot${connected ? ' live' : ''}`} style={{ background: connected ? '#22c55e' : '#f97316' }} />
             <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>{connected ? 'Live' : 'Connecting...'}</span>
           </div>
-          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            {tickets.length} active tickets
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+            {tickets.length} tickets · {ticketsWithLocation.length} mapped
           </div>
+          {ticketsWithLocation.length > 0 && (
+            <button
+              className="btn btn-outline btn-sm"
+              style={{ fontSize: '0.72rem', padding: '3px 8px' }}
+              onClick={() => {
+                if (mapRef.current && ticketsWithLocation.length > 0) {
+                  const bounds = ticketsWithLocation.map(t => [t.location.lat, t.location.lng])
+                  mapRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 })
+                }
+              }}
+            >
+              📍 Fit All Markers
+            </button>
+          )}
         </div>
         {/* Legend */}
         <div className="card card-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
