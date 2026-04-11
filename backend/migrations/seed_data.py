@@ -64,21 +64,21 @@ WARDS = [
 # ── Departments ────────────────────────────────────────────────────────────────
 DEPARTMENTS = [
     {"id": str(uuid.uuid4()), "name": "Roads & Infrastructure", "code": "ROADS",
-     "email": "roads@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/roads"},
+     "email": "roads@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/roads"},
     {"id": str(uuid.uuid4()), "name": "Storm Water Drains (SWD)", "code": "SWD",
-     "email": "swd@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/swd"},
+     "email": "swd@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swd"},
     {"id": str(uuid.uuid4()), "name": "Street Lighting", "code": "LIGHTS",
-     "email": "lights@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/lights"},
+     "email": "lights@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/lights"},
     {"id": str(uuid.uuid4()), "name": "Solid Waste Management", "code": "SWM",
-     "email": "swm@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/swm"},
+     "email": "swm@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swm"},
     {"id": str(uuid.uuid4()), "name": "Hydraulic Engineering (Water Supply)", "code": "HYD",
-     "email": "water@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/water"},
+     "email": "water@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/water"},
     {"id": str(uuid.uuid4()), "name": "Electricity Emergency Cell", "code": "ELEC_EMG",
-     "email": "livewire@bestenergy.in", "webhook_url": "http://localhost:3000/webhook/emergency"},
+     "email": "livewire@bestenergy.in", "webhook_url": "http://dept-portal:3000/webhook/emergency"},
     {"id": str(uuid.uuid4()), "name": "Fire Brigade & Rescue", "code": "FIRE",
-     "email": "fire@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/fire"},
+     "email": "fire@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/fire"},
     {"id": str(uuid.uuid4()), "name": "Building & Factories", "code": "BLDG",
-     "email": "buildings@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/buildings"},
+     "email": "buildings@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/buildings"},
 ]
 
 # ── Category → Department mapping (category + NULL ward = default for all wards)

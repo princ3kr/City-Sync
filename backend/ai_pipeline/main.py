@@ -85,25 +85,6 @@ async def process_submission(msg_id: str, data: dict):
         if lat and lng:
             ward_id = await get_ward_for_point(lat, lng)
 
-        # ── Step 4.5: Write placeholder ticket to satisfy Foreign Key ─────────
-        async with get_db() as session:
-            existing = await session.get(Ticket, ticket_id)
-            if not existing:
-                placeholder = Ticket(
-                    id=ticket_id,
-                    category=classification.category,
-                    severity=classification.severity,
-                    severity_tier="Medium", # placeholder
-                    priority_score=0.0,
-                    status="Processing",
-                    intent=classification.intent,
-                    confidence=classification.confidence,
-                    citizen_token=citizen_token,
-                    description=description,
-                )
-                session.add(placeholder)
-                await session.commit()
-
         # ── Step 5: Dedup + Cluster (on raw GPS — before DP noise) ────────────
         log.info("step5_dedup", ticket_id=ticket_id, lat=lat, lng=lng)
         submitted_at = datetime.now(timezone.utc)

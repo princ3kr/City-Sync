@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { submitComplaint } from '../utils/api'
+import LocationPicker from './LocationPicker'
 
 const CATEGORIES = [
   { value: 'Pothole',         icon: '🕳️', label: 'Pothole' },
@@ -14,6 +15,7 @@ const CATEGORIES = [
   { value: 'Noise',           icon: '🔊', label: 'Noise' },
   { value: 'Other',           icon: '📋', label: 'Other' },
 ]
+
 
 function imageToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -33,6 +35,7 @@ async function getImageHash(base64) {
 export default function CitizenPortal({ onSubmitted }) {
   const [step, setStep] = useState('form') // form | submitting | success | error
   const [result, setResult] = useState(null)
+  const [errorMessage, setErrorMessage] = useState('')
 
   const [description, setDescription] = useState('')
   const [imageFile, setImageFile] = useState(null)
@@ -53,7 +56,7 @@ export default function CitizenPortal({ onSubmitted }) {
         setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         setGpsError(null)
       },
-      () => setGpsError('GPS access denied — your description will be used for geocoding'),
+      () => setGpsError('GPS access denied — please pin location manually on the map'),
     )
   }
 
@@ -100,7 +103,19 @@ export default function CitizenPortal({ onSubmitted }) {
       setStep('success')
       onSubmitted?.(response.data)
     } catch (err) {
-      console.error(err)
+      console.error('Submission error:', err)
+      let msg = 'Submission failed. Please check your connection and try again.'
+      if (err.response?.data) {
+        const detail = err.response.data.detail
+        if (Array.isArray(detail)) {
+          msg = detail.map(d => `${d.loc ? d.loc[d.loc.length - 1] : 'field'}: ${d.msg}`).join(', ')
+        } else if (typeof detail === 'string') {
+          msg = detail
+        } else if (err.response.data.message) {
+          msg = err.response.data.message
+        }
+      }
+      setErrorMessage(msg)
       setStep('error')
     }
   }
@@ -201,30 +216,28 @@ export default function CitizenPortal({ onSubmitted }) {
           )}
         </div>
 
-        {/* GPS */}
+        {/* Location Section */}
         <div className="form-group">
-          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={useGPS}
-              onChange={e => setUseGPS(e.target.checked)}
-              style={{ width: 16, height: 16 }}
-            />
-            Share Location (improves routing accuracy)
-          </label>
-          {useGPS && (
+          <label className="form-label">Pin Location *</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
               <button type="button" className="btn btn-outline btn-sm" onClick={captureGPS}>
-                📍 Capture GPS
+                📍 Use My GPS
               </button>
+              {gpsError && <span style={{ color: 'var(--tier-critical)', fontSize: '0.75rem' }}>{gpsError}</span>}
               {gpsCoords && (
-                <span style={{ color: 'var(--tier-low)', fontSize: '0.8rem' }}>
-                  ✓ {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
+                <span style={{ color: 'var(--tier-low)', fontSize: '0.75rem', fontWeight: 600 }}>
+                  ✓ GPS Captured
                 </span>
               )}
-              {gpsError && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{gpsError}</span>}
             </div>
-          )}
+            
+            <LocationPicker value={gpsCoords} onChange={setGpsCoords} />
+            
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+              * You can move the pin directly on the map for higher accuracy.
+            </p>
+          </div>
         </div>
 
         {/* Privacy notice */}
@@ -255,7 +268,7 @@ export default function CitizenPortal({ onSubmitted }) {
 
         {step === 'error' && (
           <div style={{ color: 'var(--tier-critical)', textAlign: 'center', fontSize: '0.875rem' }}>
-            ✗ Submission failed. Please check your connection and try again.
+            ✗ {errorMessage || 'Submission failed. Please check your connection and try again.'}
           </div>
         )}
       </form>

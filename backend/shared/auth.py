@@ -118,15 +118,26 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     filtered.pop("citizen_token", None)
 
     # Handle GPS based on role
+    # Note: raw_lat/lng from DB are already fuzzed to 'officer' level (±30m)
     raw_lat = filtered.pop("raw_lat", None)
     raw_lng = filtered.pop("raw_lng", None)
 
     if raw_lat and raw_lng:
-        fuzzed_lat, fuzzed_lng = fuzz_for_role(raw_lat, raw_lng, role)
+        # If officer or higher, we return the baseline fuzzed coordinates from DB (±30m)
+        from shared.auth import ROLE_HIERARCHY
+        caller_level = ROLE_HIERARCHY.get(role, -1)
+        
+        if caller_level >= ROLE_HIERARCHY["officer"]:
+            fuzzed_lat, fuzzed_lng = raw_lat, raw_lng
+        else:
+            # For public/lower roles, add extra noise to reach roughly ±90m (EPSILON_PUBLIC)
+            from shared.privacy import apply_dp_noise, EPSILON_PUBLIC
+            fuzzed_lat, fuzzed_lng = apply_dp_noise(raw_lat, raw_lng, EPSILON_PUBLIC)
+
         filtered["location"] = {
             "lat": round(fuzzed_lat, 5),
             "lng": round(fuzzed_lng, 5),
-            "fuzz_level": role,
+            "fuzz_level": "officer" if caller_level >= ROLE_HIERARCHY["officer"] else "public",
         }
 
     # Public cannot see description (privacy — could reveal exact address)

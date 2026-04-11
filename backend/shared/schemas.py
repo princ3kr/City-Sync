@@ -40,9 +40,9 @@ class TicketStatus(BaseModel):
     status: str
     description: Optional[str]
     ward_id: Optional[str]
-    submitted_at: datetime
-    updated_at: datetime
-    upvote_count: int
+    submitted_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    upvote_count: int = 0
     # GPS coordinates depend on caller's role — may be fuzzed or omitted
     location: Optional[dict] = None  # {"lat": ..., "lng": ..., "fuzz_level": "officer|public"}
     cluster_info: Optional[dict] = None  # {"cluster_id": ..., "member_count": ...}

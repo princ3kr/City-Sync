@@ -28,8 +28,9 @@ export const listTickets     = (params)   => api.get('/api/tickets', { params })
 export const upvoteTicket    = (ticketId) => api.post(`/api/upvote?ticket_id=${ticketId}`)
 
 // ── Verification APIs ──────────────────────────────────────────────────────────
-export const getVerificationStatus = (ticketId) => api.get(`/api/verify/${ticketId}`)
-export const submitStep2           = (payload)  => api.post('/api/verify/step2', payload)
+const VERIFY_URL = import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'
+export const getVerificationStatus = (ticketId) => api.get(`${VERIFY_URL}/api/verify/${ticketId}`)
+export const submitStep2           = (payload)  => api.post(`${VERIFY_URL}/api/verify/step2`, payload)
 
 // ── Metrics APIs ───────────────────────────────────────────────────────────────
 export const getMetrics     = () => api.get('/api/metrics')
@@ -41,5 +42,11 @@ export const getVerifyMetrics = () =>
 
 // ── Demo ───────────────────────────────────────────────────────────────────────
 export const getDemoTokens = () => api.get('/api/demo-tokens')
+
+// ── Department Portal APIs ────────────────────────────────────────────────────
+const DEPT_PORTAL_URL = 'http://localhost:3000'
+export const getDeptStats      = () => axios.get(`${DEPT_PORTAL_URL}/api/stats`)
+export const getDeptTickets    = () => axios.get(`${DEPT_PORTAL_URL}/api/tickets`)
+export const getDeptWebhookLog = () => axios.get(`${DEPT_PORTAL_URL}/api/webhook-log`)
 
 export default api

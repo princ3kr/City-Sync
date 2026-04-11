@@ -5,6 +5,7 @@ import OfficerMap from './components/OfficerMap'
 import AdminDashboard from './components/AdminDashboard'
 import StatusTimeline from './components/StatusTimeline'
 import VerificationPanel from './components/VerificationPanel'
+import DepartmentPortal from './components/DepartmentPortal'
 import { useSocket } from './hooks/useSocket'
 
 // ── Toast Notifications ────────────────────────────────────────────────────────
@@ -76,12 +77,18 @@ function Nav({ onAddToast }) {
           >
             📊 Admin
           </NavLink>
+          <NavLink
+            to="/dept"
+            className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+          >
+            🏢 Dept
+          </NavLink>
         </div>
 
         {/* Role switcher for demo */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>DEMO ROLE:</span>
-          {['citizen', 'officer', 'admin'].map(r => (
+          {['citizen', 'officer', 'admin', 'dept'].map(r => (
             <button
               key={r}
               className={`btn btn-sm ${role === r ? 'btn-primary' : 'btn-ghost'}`}
@@ -252,8 +259,8 @@ function OfficerPage() {
     <div className="container" style={{ padding: '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
-          <h2 style={{ marginBottom: 4 }}>Officer Dashboard</h2>
-          <p style={{ fontSize: '0.875rem' }}>Real-time complaint map · Sorted by priority score</p>
+          <h2 style={{ marginBottom: 4 }}>Officer Dashboard (v2.0 - Map Fixed)</h2>
+          <p style={{ fontSize: '0.875rem' }}>Real-time complaint map · Sorted by priority score · Leaflet Fallback Active</p>
         </div>
         <div style={{ padding: '6px 14px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-full)', fontSize: '0.78rem', color: '#ef4444' }}>
           🔒 Officer View · GPS ±30m fuzzed · No PII visible
@@ -296,6 +303,7 @@ export default function App() {
             <Route path="/track"   element={<TrackPage />} />
             <Route path="/officer" element={<OfficerPage />} />
             <Route path="/admin"   element={<div className="container" style={{ padding: '24px' }}><AdminDashboard /></div>} />
+            <Route path="/dept"    element={<div className="container" style={{ padding: '24px' }}><DepartmentPortal /></div>} />
           </Routes>
         </main>
       </div>

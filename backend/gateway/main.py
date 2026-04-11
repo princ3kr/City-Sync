@@ -10,6 +10,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import socketio
 from fastapi import FastAPI, Depends, HTTPException, Request, status
@@ -21,7 +22,9 @@ from shared.logging_config import configure_logging, get_logger, set_trace_id, s
 from shared.auth import create_token, get_current_user
 from shared.privacy import hmac_tokenize, strip_exif
 from shared.redis_client import publish_event, get_redis, Streams, get_top_categories
-from shared.schemas import SubmitComplaintRequest, SubmitComplaintResponse, TicketListResponse
+from shared.database import get_db, get_db_dep
+from shared.models import Ticket
+from shared.schemas import SubmitComplaintRequest, SubmitComplaintResponse
 from gateway.rate_limiter import check_rate_limit
 
 configure_logging(settings.log_level)
@@ -42,6 +45,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # Log the full 422 detail to stdout
+    log.error("validation_failed", errors=exc.errors())
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()},
+    )
 
 # ── Socket.io for real-time push ──────────────────────────────────────────────
 sio = socketio.AsyncServer(
@@ -118,6 +132,7 @@ async def submit_complaint(
     request: Request,
     payload: SubmitComplaintRequest,
     user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db_dep),
 ):
     """
     Citizen complaint submission endpoint.
@@ -177,10 +192,27 @@ async def submit_complaint(
     lat = payload.latitude or (extracted_gps["lat"] if extracted_gps else None)
     lng = payload.longitude or (extracted_gps["lng"] if extracted_gps else None)
 
-    # ── 6. Issue new bearer token for this citizen session ────────────────────
+    # ── 6. Write initial record to DB to prevent race conditions ─────────────
+    # This ensures the tracker won't show 'Ticket not found' while AI is running
+    initial_ticket = Ticket(
+        id=ticket_id,
+        category="Other",        # placeholder
+        severity=4,              # placeholder
+        severity_tier="Medium",   # placeholder
+        status="Processing",
+        citizen_token=citizen_token,
+        description=payload.description,
+        image_key=image_key or None,
+        submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(initial_ticket)
+    await db.commit()
+    log.info("initial_ticket_created", ticket_id=ticket_id)
+
+    # ── 7. Issue new bearer token for this citizen session ────────────────────
     bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": ticket_id})
 
-    # ── 7. Publish to Redis Stream raw.submissions ───────────────────────────
+    # ── 8. Publish to Redis Stream raw.submissions ───────────────────────────
     event_data = {
         "ticket_id": ticket_id,
         "trace_id": trace_id,
@@ -220,15 +252,30 @@ async def get_ticket(
     user: dict = Depends(get_current_user),
 ):
     """Get ticket status — response fields filtered by caller role."""
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     from shared.database import get_db
     from shared.models import Ticket
     from shared.auth import filter_ticket_fields
+    from geoalchemy2 import Geometry
+    from geoalchemy2.functions import ST_X, ST_Y
 
     async with get_db() as session:
-        ticket = await session.get(Ticket, ticket_id)
-        if not ticket:
+        # We use a query to extract X (lng) and Y (lat) from the geography point
+        # ST_X/Y require a geometry type, so we cast fuzzed_gps (geography)
+        query = select(
+            Ticket,
+            ST_Y(Ticket.fuzzed_gps.cast(Geometry)).label("lat"),
+            ST_X(Ticket.fuzzed_gps.cast(Geometry)).label("lng")
+        ).where(Ticket.id == ticket_id)
+        
+        result = await session.execute(query)
+        row = result.one_or_none()
+        if not row:
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+        
+        ticket = row[0]
+        raw_lat = row[1]
+        raw_lng = row[2]
 
     role = user.get("role", "public")
     ticket_dict = {
@@ -244,6 +291,8 @@ async def get_ticket(
         "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
         "upvote_count": ticket.upvote_count,
         "citizen_token": ticket.citizen_token,
+        "raw_lat": raw_lat,
+        "raw_lng": raw_lng,
     }
     return filter_ticket_fields(ticket_dict, role)
 
@@ -258,16 +307,30 @@ async def list_tickets(
     user: dict = Depends(get_current_user),
 ):
     """List tickets with optional filters. Results filtered by caller role."""
-    from sqlalchemy import select
+    from sqlalchemy import select, func
     from shared.database import get_db
     from shared.models import Ticket
     from shared.auth import filter_ticket_fields
+    from geoalchemy2 import Geometry
+    from geoalchemy2.functions import ST_X, ST_Y
 
     page_size = min(page_size, 100)
     offset = (page - 1) * page_size
 
     async with get_db() as session:
-        query = select(Ticket)
+        # 1. Get total count for pagination
+        count_query = select(func.count()).select_from(Ticket)
+        if ward_id: count_query = count_query.where(Ticket.ward_id == ward_id)
+        if status: count_query = count_query.where(Ticket.status == status)
+        if category: count_query = count_query.where(Ticket.category == category)
+        total_count = await session.scalar(count_query)
+
+        # 2. Get the actual tickets
+        query = select(
+            Ticket,
+            ST_Y(Ticket.fuzzed_gps.cast(Geometry)).label("lat"),
+            ST_X(Ticket.fuzzed_gps.cast(Geometry)).label("lng")
+        )
         if ward_id:
             query = query.where(Ticket.ward_id == ward_id)
         if status:
@@ -276,11 +339,14 @@ async def list_tickets(
             query = query.where(Ticket.category == category)
         query = query.order_by(Ticket.priority_score.desc()).offset(offset).limit(page_size)
         result = await session.execute(query)
-        tickets = result.scalars().all()
+        rows = result.all()
 
     role = user.get("role", "public")
     filtered = []
-    for t in tickets:
+    for row in rows:
+        t = row[0]
+        lat = row[1]
+        lng = row[2]
         td = {
             "ticket_id": t.id,
             "category": t.category,
@@ -294,10 +360,12 @@ async def list_tickets(
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "upvote_count": t.upvote_count,
             "citizen_token": t.citizen_token,
+            "raw_lat": lat,
+            "raw_lng": lng,
         }
         filtered.append(filter_ticket_fields(td, role))
 
-    return {"tickets": filtered, "page": page, "page_size": page_size, "total": len(filtered)}
+    return {"tickets": filtered, "page": page, "page_size": page_size, "total": total_count}
 
 
 @app.post("/api/upvote")

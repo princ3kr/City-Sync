@@ -37,16 +37,19 @@ def hmac_tokenize(identity: str) -> str:
 # Sensitivity is ~1 coordinate unit ≈ 111km. We scale by 1/111000 to get metres.
 # Sigma = sensitivity * sqrt(2*ln(1.25/delta)) / epsilon
 
-def _gaussian_sigma(epsilon: float, sensitivity_m: float = 111_000.0) -> float:
+def _gaussian_sigma(epsilon: float, sensitivity_m: float = 1.0) -> float:
     """
     Compute Gaussian noise sigma for a given epsilon.
     delta = 1e-5 (standard).
-    sensitivity expressed in degrees (1 degree ≈ 111km).
+    sigma = (sensitivity / epsilon) * sqrt(2 * ln(1.25/delta))
+    Then we scale from meters to degrees.
     """
     delta = 1e-5
-    sensitivity_deg = sensitivity_m / 111_000.0  # 1 degree
-    sigma = sensitivity_deg * math.sqrt(2 * math.log(1.25 / delta)) / epsilon
-    return sigma
+    # noise_m is the standard deviation in meters
+    noise_m = (sensitivity_m / epsilon) * math.sqrt(2 * math.log(1.25 / delta))
+    # Convert noise in meters to noise in degrees (rough approximation: 111km = 1 deg)
+    sigma_deg = noise_m / 111_000.0
+    return sigma_deg
 
 
 EPSILON_OFFICER = 2.0   # ±~30m

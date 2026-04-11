@@ -200,6 +200,7 @@ services:
     container_name: citysync_dept_portal
     environment:
       - PORT=3000
+    env_file: .env
     ports:
       - "3000:3000"
     networks:
