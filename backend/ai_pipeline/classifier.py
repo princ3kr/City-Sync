@@ -235,20 +235,26 @@ async def classify_complaint(
     # Log to model_calls table
     try:
         from shared.database import get_db
-        from shared.models import ModelCall
+        from shared.models import ModelCall, Ticket
         import uuid
 
         async with get_db() as session:
-            call_log = ModelCall(
-                id=str(uuid.uuid4()),
-                ticket_id=ticket_id,
-                model=model_name,
-                input_tokens=model_meta.get("input_tokens"),
-                output_tokens=model_meta.get("output_tokens"),
-                latency_ms=latency_ms,
-                result_json=result.model_dump(),
-            )
-            session.add(call_log)
+            # Check if ticket exists before logging (prevent FK violation)
+            existing = await session.get(Ticket, ticket_id)
+            if not existing:
+                log.warning("skipping_model_call_log_no_ticket", ticket_id=ticket_id)
+            else:
+                call_log = ModelCall(
+                    id=str(uuid.uuid4()),
+                    ticket_id=ticket_id,
+                    model=model_name,
+                    input_tokens=model_meta.get("input_tokens"),
+                    output_tokens=model_meta.get("output_tokens"),
+                    latency_ms=latency_ms,
+                    result_json=result.model_dump(),
+                )
+                session.add(call_log)
+                await session.commit()
     except Exception as e:
         log.warning("model_call_log_failed", error=str(e))
 

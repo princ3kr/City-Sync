@@ -8,6 +8,7 @@ import asyncio
 import sys
 import os
 import uuid
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -28,7 +29,6 @@ WARDS = [
         "name": "A Ward (Colaba & Fort)",
         "city": "Mumbai",
         "centroid": (72.8347, 18.9217),
-        # Approximate bounding box polygon
         "boundary_wkt": "POLYGON((72.82 18.90, 72.85 18.90, 72.85 18.94, 72.82 18.94, 72.82 18.90))",
     },
     {
@@ -64,23 +64,22 @@ WARDS = [
 # ── Departments ────────────────────────────────────────────────────────────────
 DEPARTMENTS = [
     {"id": str(uuid.uuid4()), "name": "Roads & Infrastructure", "code": "ROADS",
-     "email": "roads@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/roads"},
+     "email": "roads@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/roads"},
     {"id": str(uuid.uuid4()), "name": "Storm Water Drains (SWD)", "code": "SWD",
-     "email": "swd@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/swd"},
+     "email": "swd@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swd"},
     {"id": str(uuid.uuid4()), "name": "Street Lighting", "code": "LIGHTS",
-     "email": "lights@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/lights"},
+     "email": "lights@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/lights"},
     {"id": str(uuid.uuid4()), "name": "Solid Waste Management", "code": "SWM",
-     "email": "swm@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/swm"},
+     "email": "swm@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/swm"},
     {"id": str(uuid.uuid4()), "name": "Hydraulic Engineering (Water Supply)", "code": "HYD",
-     "email": "water@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/water"},
+     "email": "water@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/water"},
     {"id": str(uuid.uuid4()), "name": "Electricity Emergency Cell", "code": "ELEC_EMG",
-     "email": "livewire@bestenergy.in", "webhook_url": "http://localhost:3000/webhook/emergency"},
+     "email": "livewire@bestenergy.in", "webhook_url": "http://dept-portal:3000/webhook/emergency"},
     {"id": str(uuid.uuid4()), "name": "Fire Brigade & Rescue", "code": "FIRE",
-     "email": "fire@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/fire"},
+     "email": "fire@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/fire"},
     {"id": str(uuid.uuid4()), "name": "Building & Factories", "code": "BLDG",
-     "email": "buildings@bmc.gov.in", "webhook_url": "http://localhost:3000/webhook/buildings"},
+     "email": "buildings@bmc.gov.in", "webhook_url": "http://dept-portal:3000/webhook/buildings"},
 ]
-
 # ── Category → Department mapping (category + NULL ward = default for all wards)
 CATEGORY_DEPARTMENT_MAP = {
     "Pothole": "ROADS",
@@ -92,7 +91,7 @@ CATEGORY_DEPARTMENT_MAP = {
     "Building Hazard": "BLDG",
     "Live Wire": "ELEC_EMG",
     "Noise": "ROADS",
-    "Other": "ROADS",
+    "Other": "OTHERS",
 }
 
 # ── Severity overrides (emergency bypass) ─────────────────────────────────────
@@ -163,6 +162,11 @@ async def seed():
             )
             row = existing.fetchone()
             if row:
+                # Update webhook_url for existing departments
+                await session.execute(
+                    text("UPDATE departments SET webhook_url = :url WHERE code = :code"),
+                    {"url": dept_data["webhook_url"], "code": dept_data["code"]},
+                )
                 dept_by_code[dept_data["code"]] = str(row[0])
             else:
                 dept = m.Department(
@@ -182,24 +186,16 @@ async def seed():
         route_count = 0
         for category, dept_code in CATEGORY_DEPARTMENT_MAP.items():
             dept_id = dept_by_code[dept_code]
-            # Check if route already exists
-            existing = await session.execute(
+            # Upsert route
+            await session.execute(
                 text("""
-                    SELECT id FROM department_routes
-                    WHERE category = :cat AND ward_id IS NULL
+                    INSERT INTO department_routes (id, category, ward_id, primary_department_id)
+                    VALUES (:id, :cat, NULL, :dept_id)
+                    ON CONFLICT (category, ward_id) DO UPDATE SET primary_department_id = EXCLUDED.primary_department_id
                 """),
-                {"cat": category},
+                {"id": str(uuid.uuid4()), "cat": category, "dept_id": dept_id},
             )
-            if not existing.fetchone():
-                route = m.DepartmentRoute(
-                    id=str(uuid.uuid4()),
-                    category=category,
-                    ward_id=None,  # NULL = applies to all wards
-                    primary_department_id=dept_id,
-                    webhook_url=None,  # use department webhook_url
-                )
-                session.add(route)
-                route_count += 1
+            route_count += 1
         await session.flush()
         print(f"   ✓ {route_count} routes seeded")
 
@@ -208,28 +204,119 @@ async def seed():
         override_count = 0
         for override_data in SEVERITY_OVERRIDES:
             dept_id = dept_by_code[override_data["department_code"]]
+            # Manual check instead of ON CONFLICT due to missing schema constraint
             existing = await session.execute(
-                text("""
-                    SELECT id FROM severity_overrides
-                    WHERE category = :cat AND min_severity = :sev
-                """),
+                text("SELECT id FROM severity_overrides WHERE category = :cat AND min_severity = :sev"),
                 {"cat": override_data["category"], "sev": override_data["min_severity"]},
             )
             if not existing.fetchone():
-                override = m.SeverityOverride(
-                    id=str(uuid.uuid4()),
-                    category=override_data["category"],
-                    min_severity=override_data["min_severity"],
-                    department_id=dept_id,
-                    bypass_ward=override_data["bypass_ward"],
-                    reason=override_data["reason"],
+                await session.execute(
+                    text("""
+                        INSERT INTO severity_overrides (id, category, min_severity, department_id, bypass_ward, reason)
+                        VALUES (:id, :cat, :sev, :dept_id, :bypass, :reason)
+                    """),
+                    {
+                        "id": str(uuid.uuid4()),
+                        "cat": override_data["category"],
+                        "sev": override_data["min_severity"],
+                        "dept_id": dept_id,
+                        "bypass": override_data["bypass_ward"],
+                        "reason": override_data["reason"],
+                    },
                 )
-                session.add(override)
                 override_count += 1
         await session.flush()
         print(f"   ✓ {override_count} severity overrides seeded")
 
+        # ── 5. Seed Sample Tickets (New!) ──────────────────────────────────────
+        print("🎫 Seeding sample tickets for demo...")
+        
+        # Helper to generate citizen tokens
+        demo_citizen = "8f4a3c2b1e9d8f7a6c5b4e3d2f1a0987c6b5a4d3e2f1c0b9a8d7e6f5c4b3a2d1"
+
+        SAMPLE_TICKETS = [
+            {
+                "id": "TKT-DEMO-001",
+                "category": "Pothole",
+                "description": "Massive pothole at SV Road Junction. Causing major traffic snarls.",
+                "status": "Resolved",
+                "severity": 8,
+                "tier": "High",
+                "score": 85.0,
+                "lat": 19.1136, "lng": 72.8697, # Andheri East
+                "ward": "MUM-K-E",
+                "dept": "ROADS"
+            },
+            {
+                "id": "TKT-DEMO-002",
+                "category": "Drainage",
+                "description": "Overflowing drain near Malabar Hill Park. Foul smell in the area.",
+                "status": "In Progress",
+                "severity": 6,
+                "tier": "Medium",
+                "score": 55.0,
+                "lat": 18.9596, "lng": 72.7946, # Malabar Hill
+                "ward": "MUM-D",
+                "dept": "SWD"
+            },
+            {
+                "id": "TKT-DEMO-003",
+                "category": "Street Light",
+                "description": "Three street lights are out near Colaba Causeway. Unsafe at night.",
+                "status": "Pending",
+                "severity": 4,
+                "tier": "Low",
+                "score": 30.0,
+                "lat": 18.9217, "lng": 72.8347, # Colaba
+                "ward": "MUM-A",
+                "dept": "LIGHTS"
+            }
+        ]
+
+        for t_data in SAMPLE_TICKETS:
+            existing = await session.get(m.Ticket, t_data["id"])
+            if not existing:
+                ticket = m.Ticket(
+                    id=t_data["id"],
+                    category=t_data["category"],
+                    description=t_data["description"],
+                    status=t_data["status"],
+                    severity=t_data["severity"],
+                    severity_tier=t_data["tier"],
+                    priority_score=t_data["score"],
+                    ward_id=t_data["ward"],
+                    department_id=dept_by_code[t_data["dept"]],
+                    citizen_token=demo_citizen,
+                    submitted_at=datetime.now(timezone.utc),
+                )
+                session.add(ticket)
+                await session.flush()
+                
+                # Set GPS
+                await session.execute(
+                    text("UPDATE tickets SET fuzzed_gps = ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)::geography WHERE id = :id"),
+                    {"id": t_data["id"], "lat": t_data["lat"], "lng": t_data["lng"]}
+                )
+
+                # If Resolved, create resolution log
+                if t_data["status"] == "Resolved":
+                    res_id = str(uuid.uuid4())
+                    res_log = m.ResolutionLog(
+                        id=res_id,
+                        ticket_id=t_data["id"],
+                        resolution_method="verified",
+                        reason="Repair completed and verified by citizen.",
+                        resolved_at=datetime.now(timezone.utc)
+                    )
+                    session.add(res_log)
+                    await session.flush()
+                    await session.execute(
+                        text("UPDATE tickets SET resolution_log_id = :res_id WHERE id = :id"),
+                        {"res_id": res_id, "id": t_data["id"]}
+                    )
+
         await session.commit()
+        print("   ✓ 3 sample tickets seeded")
 
     print()
     print("✅ Seed data complete!")

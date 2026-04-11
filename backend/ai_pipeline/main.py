@@ -50,6 +50,25 @@ async def process_submission(msg_id: str, data: dict):
 
     log.info("pipeline_start", ticket_id=ticket_id, trace_id=trace_id)
 
+    # ── Step 0: Ensure Ticket exists (prevent FK violations in logs) ───────
+    try:
+        async with get_db() as session:
+            existing = await session.get(Ticket, ticket_id)
+            if not existing:
+                placeholder = Ticket(
+                    id=ticket_id,
+                    citizen_token=data.get("citizen_token", "pending"),
+                    status="Processing",
+                    severity=1,
+                    severity_tier="Low",
+                    category="Other"
+                )
+                session.add(placeholder)
+                await session.commit()
+                log.info("placeholder_ticket_created", ticket_id=ticket_id)
+    except Exception as e:
+        log.warning("placeholder_creation_failed", error=str(e))
+
     try:
         description = data.get("description", "")
         language = data.get("language", "en")

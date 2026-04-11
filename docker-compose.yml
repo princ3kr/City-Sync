@@ -16,7 +16,7 @@ services:
     networks:
       - citysync
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U citysync -d citysync"]
+      test: [ "CMD-SHELL", "pg_isready -U citysync -d citysync" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
     networks:
       - citysync
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -52,7 +52,7 @@ services:
     networks:
       - citysync
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -107,6 +107,7 @@ services:
     container_name: citysync_ai_pipeline
     command: python -m ai_pipeline.main
     environment:
+      - DATABASE_URL=postgresql+asyncpg://citysync:citysync_secret@postgres:5432/citysync
       - REDIS_URL=redis://redis:6379/0
       - MINIO_ENDPOINT=minio:9000
     env_file: .env
@@ -190,6 +191,7 @@ services:
     container_name: citysync_frontend
     environment:
       - VITE_API_URL=http://localhost:8000
+      - VITE_MAPBOX_TOKEN=${VITE_MAPBOX_TOKEN}
     ports:
       - "5173:5173"
     networks:
@@ -203,6 +205,7 @@ services:
     container_name: citysync_dept_portal
     environment:
       - PORT=3000
+    env_file: .env
     ports:
       - "3000:3000"
     networks:

@@ -14,11 +14,16 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Auto-refresh token from response
+// Auto-refresh token from response and clear on 401
 api.interceptors.response.use((response) => {
   const newToken = response.data?.bearer_token
   if (newToken) localStorage.setItem('citysync_token', newToken)
   return response
+}, (error) => {
+  if (error.response?.status === 401) {
+    localStorage.removeItem('citysync_token')
+  }
+  return Promise.reject(error)
 })
 
 // ── Complaint APIs ─────────────────────────────────────────────────────────────

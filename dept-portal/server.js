@@ -77,6 +77,11 @@ app.post('/webhook/:dept_code', (req, res) => {
   }
 
   console.log(`[${new Date().toISOString()}] Webhook received: ${dept_code} | ${payload.ticket_id} | valid=${isValid} | attempt=${attempt}`)
+  console.log(`[DEBUG] Payload details:`, JSON.stringify(payload, null, 2));
+  
+  if (!isValid && signature) {
+    console.log(`[ERROR] Signature mismatch! Routing service used a different WEBHOOK_HMAC_SECRET than this portal.`);
+  }
 
   res.status(200).json({ status: 'accepted', ticket_id: payload.ticket_id, signature_valid: isValid })
 })

@@ -101,6 +101,9 @@ export default function CitizenPortal({ onSubmitted }) {
       onSubmitted?.(response.data)
     } catch (err) {
       console.error(err)
+      setResult({
+        message: err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
+      })
       setStep('error')
     }
   }
@@ -255,7 +258,7 @@ export default function CitizenPortal({ onSubmitted }) {
 
         {step === 'error' && (
           <div style={{ color: 'var(--tier-critical)', textAlign: 'center', fontSize: '0.875rem' }}>
-            ✗ Submission failed. Please check your connection and try again.
+            ✗ Submission failed: {result?.message || result?.toString() || 'Please check your connection and try again.'}
           </div>
         )}
       </form>
