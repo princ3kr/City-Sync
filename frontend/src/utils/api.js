@@ -46,15 +46,16 @@ export const getVerificationStatus = (ticketId) => verifyApi.get(`/api/verify/${
 export const submitStep2           = (payload)  => verifyApi.post('/api/verify/step2', payload)
 
 // ── Assignment APIs ─────────────────────────────────────────────────────────────
-export const assignTicket          = (ticketId, payload) => api.patch(`/api/tickets/${ticketId}/assign`, payload)
+export const assignTicket          = (ticketId, payload) => api.post(`/api/tickets/${ticketId}/assign`, payload)
+export const markTicketSolved      = (ticketId) => api.post(`/api/tickets/${ticketId}/resolve`)
 
 // ── Metrics APIs ───────────────────────────────────────────────────────────────
-export const getMetrics     = () => api.get('/api/metrics')
+export const getMetrics     = () => api.get('/api/stats/gateway')
 export const getLeaderboard = () => api.get('/api/frequency/leaderboard')
 export const getRoutingMetrics = () =>
-  axios.get(`${import.meta.env.VITE_ROUTING_URL || 'http://localhost:8001'}/api/routing/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_ROUTING_URL || 'http://localhost:8001'}/api/stats/routing`, { timeout: 5000 }).catch(() => ({ data: {} }))
 export const getVerifyMetrics = () =>
-  axios.get(`${import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'}/api/verify/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'}/api/stats/verify`, { timeout: 5000 }).catch(() => ({ data: {} }))
 
 // ── Demo ───────────────────────────────────────────────────────────────────────
 export const getDemoTokens = () => api.get('/api/demo-tokens')

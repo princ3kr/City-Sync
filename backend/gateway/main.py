@@ -1,4 +1,4 @@
-﻿"""
+"""
 CitySync ΓÇö Submission Gateway (Layer 1 + 2)
 Accepts citizen complaint submissions, rate-limits, assigns ticket IDs,
 publishes to Redis Stream, and returns HTTP 202 in ~140ms.
@@ -197,7 +197,7 @@ async def submit_complaint(
     # We call AI synchronously here to 'understand' the problem intent & location
     # for a high-accuracy duplicate search before we publish a new ticket.
     try:
-        classification = await classify_complaint(trace_id, payload.description, payload.language)
+        classification = await classify_complaint(trace_id[:20], payload.description, payload.language)
     except Exception as e:
         log.warning("duplicate_check_ai_failed", error=str(e))
         classification = None
@@ -211,11 +211,10 @@ async def submit_complaint(
             func.similarity(Ticket.description, payload.description) > 0.4
         )
         
-        # If AI extract succeeded, refine search by category or location mention
+        # If AI extract succeeded, refine search by category
         if classification:
             stmt = stmt.where(
-                (Ticket.category == classification.category) |
-                (Ticket.location_mention == classification.location_mention)
+                (Ticket.category == classification.category)
             )
 
         # Order by most similar first
@@ -555,6 +554,82 @@ async def assign_ticket_to_worker(
 
     return {"ok": True, "ticket": filter_ticket_fields(ticket_dict, role)}
 
+
+@app.post("/api/tickets/{ticket_id}/resolve")
+async def resolve_ticket(
+    ticket_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Officer marks a ticket as solved/resolved directly."""
+    from sqlalchemy import text
+    _require_officer(user)
+
+    async with get_db() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None and ticket.category not in dept_cats:
+            raise HTTPException(status_code=404, detail="Ticket not found in your department domain")
+        if ticket.status == "Resolved" or ticket.status == "Rejected":
+            raise HTTPException(status_code=400, detail=f"Ticket is already {ticket.status}")
+
+        await session.execute(
+            text(
+                """
+                UPDATE tickets SET
+                    status = 'Solved',
+                    updated_at = NOW()
+                WHERE id = :tid
+                """
+            ),
+            {"tid": ticket_id},
+        )
+        await session.refresh(ticket)
+
+    await publish_event(
+        Streams.STATUS_UPDATES,
+        {
+            "ticket_id": ticket_id,
+            "citizen_token": ticket.citizen_token,
+            "status": "Solved",
+            "category": ticket.category or "",
+            "severity_tier": ticket.severity_tier or "",
+            "priority_score": str(ticket.priority_score or 0),
+            "ward_id": ticket.ward_id or "",
+            "message": "Marked as Solved by field crew officer.",
+        },
+    )
+
+    ward_id = ticket.ward_id or ""
+    role = user.get("role", "public")
+    
+    ticket_dict = {
+        "ticket_id": ticket.id,
+        "category": ticket.category,
+        "severity": ticket.severity,
+        "severity_tier": ticket.severity_tier,
+        "priority_score": ticket.priority_score,
+        "status": ticket.status,
+        "description": ticket.description,
+        "ward_id": ticket.ward_id,
+        "submitted_at": ticket.submitted_at.isoformat() if ticket.submitted_at else None,
+        "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+        "upvote_count": ticket.upvote_count,
+        "citizen_token": ticket.citizen_token,
+        "assigned_worker_id": ticket.assigned_worker_id,
+        "assigned_worker_label": field_worker_label(ticket.assigned_worker_id),
+    }
+
+    async with get_db() as session:
+        cmap = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
+    if ticket_id in cmap:
+        ticket_dict["raw_lat"], ticket_dict["raw_lng"] = cmap[ticket_id][0], cmap[ticket_id][1]
+
+    filtered = filter_ticket_fields(ticket_dict, role)
+    await emit_ticket_update(ticket_id, ward_id, filtered)
+
+    return {"ok": True, "ticket": filtered}
 
 @app.post("/api/upvote")
 async def upvote_ticket(

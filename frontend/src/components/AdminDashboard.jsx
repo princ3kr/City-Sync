@@ -62,7 +62,7 @@ export default function AdminDashboard() {
       setLastRefresh(new Date())
 
       // Build status breakdown from tickets
-      const statusMap = { Pending: 0, 'In Progress': 0, 'Work Complete': 0, Resolved: 0, Rejected: 0 }
+      const statusMap = { Pending: 0, 'In Progress': 0, 'Work Complete': 0, Solved: 0, Resolved: 0, Rejected: 0 }
       const res = await listTickets({ page_size: 100 }).catch(() => ({ data: { tickets: [] } }))
       const tickets = res.data.tickets || []
       
@@ -92,7 +92,8 @@ export default function AdminDashboard() {
 
   const statusColors = {
     Pending: '#6366f1', 'In Progress': '#06b6d4',
-    'Work Complete': '#14b8a6', Resolved: '#22c55e', Rejected: '#64748b',
+    'Work Complete': '#14b8a6', Solved: '#22c55e', 
+    Resolved: '#10b981', Rejected: '#64748b',
   }
 
   return (

@@ -14,9 +14,10 @@ const STATUS_CONFIG = {
 
 const STEPS = ['Pending', 'Classified', 'Routed', 'In Progress', 'Resolved']
 
-export default function StatusTimeline({ ticketId, onStatusChange }) {
+export default function StatusTimeline({ ticketId, onStatusChange, isFresh = false }) {
   const [ticket, setTicket] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [retryCount, setRetryCount] = useState(0)
 
   useEffect(() => {
     let interval
@@ -25,28 +26,51 @@ export default function StatusTimeline({ ticketId, onStatusChange }) {
         const resp = await getTicket(ticketId)
         setTicket(resp.data)
         if (onStatusChange) onStatusChange(resp.data.status)
-      } catch (err) {
-        console.error(err)
-      } finally {
+        setRetryCount(0)
         setLoading(false)
+      } catch (err) {
+        if (err.response?.status === 404) {
+          setRetryCount(prev => prev + 1)
+        }
+        // If it's not a fresh report or we've retried a lot, stop loading
+        if (!isFresh || retryCount > 5) {
+          setLoading(false)
+        }
       }
     }
 
     fetchStatus()
-    interval = setInterval(fetchStatus, 10000) // Poll every 10s
+    // Poll faster (3s) for fresh reports to catch them as they hit the DB
+    interval = setInterval(fetchStatus, isFresh ? 3000 : 10000)
     return () => clearInterval(interval)
-  }, [ticketId])
+  }, [ticketId, isFresh, retryCount])
 
   if (loading) {
     return <div className="skeleton" style={{ height: 100, width: '100%' }} />
   }
 
   if (!ticket) {
+    const isSyncing = isFresh && retryCount < 6
     return (
-      <div className="card text-center" style={{ borderStyle: 'dashed', borderColor: 'var(--tier-critical)' }}>
-        <HelpCircle className="mx-auto mb-8" size={32} color="var(--tier-critical)" />
-        <p style={{ margin: 0 }}>Ticket <span className="font-mono">{ticketId}</span> not found.</p>
-        <p className="text-sm mt-8 opacity-70">Please check the ticket ID and try again.</p>
+      <div className="card text-center" style={{ borderStyle: 'dashed', borderColor: isSyncing ? 'var(--accent-blue)' : 'var(--tier-critical)', padding: '24px' }}>
+        <div className="flex-center mx-auto mb-16" style={{ 
+          width: 48, height: 48, borderRadius: '50%', 
+          background: isSyncing ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)' 
+        }}>
+          {isSyncing ? (
+            <div className="spinner" style={{ width: 24, height: 24, borderTopColor: 'var(--accent-blue)' }} />
+          ) : (
+            <HelpCircle size={24} color="var(--tier-critical)" />
+          )}
+        </div>
+        <p style={{ margin: 0, fontWeight: 600 }}>
+          {isSyncing ? 'Synchronizing with Database...' : `Ticket ${ticketId} not found.`}
+        </p>
+        <p className="text-sm mt-8 opacity-70">
+          {isSyncing 
+            ? 'Our AI is still processing your report. Tracking will start in a few seconds...' 
+            : 'Please check the ticket ID and try again.'}
+        </p>
       </div>
     )
   }

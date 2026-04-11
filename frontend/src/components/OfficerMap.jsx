@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useTickets } from '../hooks/useTickets'
 import { useSocket } from '../hooks/useSocket'
 import { PriorityBadge, StatusBadge } from './PriorityBadge'
-import { assignTicket } from '../utils/api'
+import { assignTicket, markTicketSolved } from '../utils/api'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -23,10 +23,11 @@ export default function OfficerMap() {
   const [mapReady, setMapReady] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState(null)
 
-  const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Pending', page_size: 100 })
+  const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Pending,In Progress', page_size: 100 })
   const { connected, lastEvent } = useSocket('all')
 
-  const ticketsWithLocation = tickets.filter(t => t.location?.lat && t.location?.lng)
+  const activeTickets = tickets.filter(t => t.status === 'Pending')
+  const ticketsWithLocation = activeTickets.filter(t => t.location?.lat && t.location?.lng)
 
   // ── Initialize Map ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function OfficerMap() {
     if (!mapReady || !mapRef.current) return
     if (tickets.length === 0) return
 
-    const validTickets = tickets.filter(t => t.location?.lat && t.location?.lng)
+    const validTickets = ticketsWithLocation
     if (validTickets.length === 0) return
 
     const bounds = []
@@ -94,12 +95,13 @@ export default function OfficerMap() {
         iconAnchor: [size / 2, size / 2]
       })
 
-      bounds.push([location.lat, location.lng])
+      bounds.push([ticket.location.lat, ticket.location.lng])
 
       if (markersRef.current[ticket_id]) {
         markersRef.current[ticket_id].setIcon(icon)
+        markersRef.current[ticket_id].setLatLng([ticket.location.lat, ticket.location.lng])
       } else {
-        const marker = L.marker([location.lat, location.lng], { icon })
+        const marker = L.marker([ticket.location.lat, ticket.location.lng], { icon })
           .addTo(mapRef.current)
           .on('click', () => setSelectedTicket(ticket))
         markersRef.current[ticket_id] = marker
@@ -149,16 +151,77 @@ export default function OfficerMap() {
             </button>
           )}
         </div>
-        {/* Legend */}
-        <div className="card card-sm" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: 6, fontWeight: 600 }}>PRIORITY</div>
-          {Object.entries(TIER_COLORS).map(([tier, color]) => (
-            <div key={tier} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontSize: '0.78rem' }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
-              {tier}
+      </div>
+
+      {/* Ongoing Tasks Sidebar (Left) */}
+      <div style={{ 
+        position: 'absolute', top: 180, left: 16, bottom: 24, width: 280, 
+        zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 12,
+        pointerEvents: 'none' // allow clicking through to map if needed, but inner cards must re-enable
+      }}>
+        <div className="card" style={{ 
+          flex: 1, background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(12px)', 
+          border: '1px solid var(--border)', display: 'flex', flexDirection: 'column',
+          pointerEvents: 'auto', padding: 0, overflow: 'hidden'
+        }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--accent-cyan)', letterSpacing: '0.05em', marginBottom: 2 }}>ONGOING TASKS</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              {tickets.filter(t => t.status === 'In Progress').length} tasks in field
             </div>
-          ))}
+          </div>
+          
+          <div style={{ flex: 1, overflowY: 'auto', padding: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {tickets.filter(t => t.status === 'In Progress').length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                No active tasks in progress.
+              </div>
+            ) : (
+              tickets.filter(t => t.status === 'In Progress').map(t => (
+                <div 
+                  key={t.ticket_id} 
+                  className="card card-sm clickable" 
+                  onClick={() => {
+                    setSelectedTicket(t);
+                    if (mapRef.current) mapRef.current.flyTo([t.location.lat, t.location.lng], 15);
+                  }}
+                  style={{ 
+                    padding: 10, background: selectedTicket?.ticket_id === t.ticket_id ? 'rgba(6, 182, 212, 0.1)' : 'var(--bg-elevated)',
+                    border: `1px solid ${selectedTicket?.ticket_id === t.ticket_id ? 'var(--accent-cyan)' : 'var(--border)'}`,
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <div style={{ display: 'flex', justify: 'between', marginBottom: 6 }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, fontFamily: 'monospace' }}>{t.ticket_id}</span>
+                    <PriorityBadge tier={t.severity_tier} style={{ transform: 'scale(0.8)', transformOrigin: 'right center' }} />
+                  </div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {t.category}
+                  </div>
+                  <button 
+                    className="btn btn-sm" 
+                    style={{ width: '100%', py: 4, fontSize: '0.72rem', background: '#22c55e', color: 'white', border: 'none' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      markTicketSolved(t.ticket_id).then(() => addOrUpdateTicket({ ...t, status: 'Solved' }));
+                    }}
+                  >
+                    ✅ Mark Solved
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Department Quick Tabs */}
+      <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 6, zIndex: 1000, background: 'var(--bg-elevated)', padding: 6, borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
+        <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 600, alignSelf: 'center', margin: '0 4px' }}>DEMO SCOPE:</span>
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => { localStorage.setItem('citysync_role', 'officer'); window.location.reload(); }}>All</button>
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => { localStorage.setItem('citysync_role', 'dept_fire'); window.location.reload(); }}>Fire</button>
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => { localStorage.setItem('citysync_role', 'dept_swd'); window.location.reload(); }}>SWD</button>
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px', fontSize: '0.75rem' }} onClick={() => { localStorage.setItem('citysync_role', 'dept_roads'); window.location.reload(); }}>Roads</button>
       </div>
 
       {selectedTicket && (
@@ -230,16 +293,14 @@ const CATEGORIES = [
   'Traffic & Signals', 'Public Transport', 'Healthcare', 'Education', 'Other',
 ]
 
-// Mock field worker roster (in production, pull from /api/field-workers)
-const FIELD_WORKERS = [
-  { id: 'FW-001', name: 'Rajesh Kumar',   dept: 'Roads',    icon: '🚧' },
-  { id: 'FW-002', name: 'Priya Sharma',   dept: 'Water',    icon: '💧' },
-  { id: 'FW-003', name: 'Amit Patel',     dept: 'Sewage',   icon: '🔧' },
-  { id: 'FW-004', name: 'Sunita Rao',     dept: 'Garbage',  icon: '🗑️' },
-  { id: 'FW-005', name: 'Vikram Singh',   dept: 'Electric', icon: '⚡' },
-  { id: 'FW-006', name: 'Deepa Nair',     dept: 'Parks',    icon: '🌿' },
-  { id: 'FW-007', name: 'Mohan Das',      dept: 'General',  icon: '👷' },
-  { id: 'FW-008', name: 'Kavita Desai',   dept: 'General',  icon: '👷' },
+// Field Crew roster (in production, pull from /api/field-workers)
+const FIELD_CREWS = [
+  { id: 'crew_fire_1', name: 'Fire Crew 1 - Fort Station', dept: 'Fire', icon: '🚒' },
+  { id: 'crew_swd_1', name: 'SWD Drainage Crew Alpha', dept: 'Water', icon: '🌊' },
+  { id: 'crew_roads_1', name: 'Roads Asphalt Crew', dept: 'Roads', icon: '🚧' },
+  { id: 'crew_sanitation_1', name: 'Sanitation Cleanup Crew', dept: 'Garbage', icon: '🗑️' },
+  { id: 'crew_police_1', name: 'Police Patrol Unit 7', dept: 'Police', icon: '🚓' },
+  { id: 'crew_general_1', name: 'General Field Crew Beta', dept: 'General', icon: '👷' },
 ]
 
 function TicketDetailPanel({ ticket, onClose, onAssigned }) {
@@ -253,10 +314,10 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
   const [assignState, setAssignState]   = useState('idle') // idle | loading | success | error
   const [assignMsg, setAssignMsg]       = useState('')
 
-  // Initialize selected worker if already assigned
+  // Initialize selected crew if already assigned
   useEffect(() => {
     if (initialAssigned) {
-      const worker = FIELD_WORKERS.find(w => `${w.name} (${w.id})` === initialAssigned)
+      const worker = FIELD_CREWS.find(w => w.id === initialAssigned || w.name === initialAssigned)
       if (worker) setSelWorker(worker)
     }
   }, [initialAssigned])
@@ -266,7 +327,7 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
     setAssignState('loading')
     try {
       const res = await assignTicket(ticket_id, {
-        assigned_to: `${selWorker.name} (${selWorker.id})`,
+        assignee_id: selWorker.id,
         category: selCategory,
         severity: selSeverity,
         notes,
@@ -277,6 +338,17 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
     } catch (err) {
       setAssignMsg(err?.response?.data?.detail || 'Assignment failed')
       setAssignState('error')
+    }
+  }
+
+  const handleMarkSolved = async () => {
+    try {
+      await markTicketSolved(ticket_id)
+      setAssignMsg('Ticket has been successfully resolved and is pending citizen verification.')
+      setAssignState('success')
+      if (onAssigned) onAssigned(ticket_id)
+    } catch (err) {
+      alert(err?.response?.data?.detail || 'Failed to mark as solved')
     }
   }
 
@@ -314,12 +386,14 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
       </div>
 
       {!showAssign ? (
-        <button
-          className="btn btn-primary btn-sm btn-full"
-          onClick={() => setShowAssign(true)}
-        >
-          👷 Assign Field Worker
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="btn btn-primary btn-sm btn-full"
+            onClick={() => setShowAssign(true)}
+          >
+            👷 Assign Field Crew
+          </button>
+        </div>
       ) : (
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
           <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: 12 }}>📋 Assignment Form</div>
@@ -351,13 +425,13 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
             />
           </div>
 
-          {/* Field Worker picker */}
+          {/* Field Crew picker */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-              ASSIGN TO
+              ASSIGN TO CREW
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
-              {FIELD_WORKERS.map(w => (
+              {FIELD_CREWS.map(w => (
                 <button
                   key={w.id}
                   onClick={() => setSelWorker(w)}
@@ -372,7 +446,7 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
                   <span style={{ fontSize: '1.2rem' }}>{w.icon}</span>
                   <div>
                     <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>{w.name}</div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{w.dept} · {w.id}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{w.dept}</div>
                   </div>
                   {selWorker?.id === w.id && <span style={{ marginLeft: 'auto', color: 'var(--accent-blue)', fontSize: '0.9rem' }}>✓</span>}
                 </button>
@@ -388,7 +462,7 @@ function TicketDetailPanel({ ticket, onClose, onAssigned }) {
             <textarea
               className="input"
               rows={2}
-              placeholder="Any special instructions for the field worker..."
+              placeholder="Any special instructions for the field crew..."
               value={notes}
               onChange={e => setNotes(e.target.value)}
               style={{ resize: 'vertical', fontSize: '0.82rem' }}

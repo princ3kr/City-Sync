@@ -152,10 +152,10 @@ async def step2_verify(
         ticket = await session.get(Ticket, ticket_id)
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        if ticket.status != "Work Complete":
+        if ticket.status not in ("Work Complete", "Solved"):
             raise HTTPException(
                 status_code=409,
-                detail=f"Ticket must be in 'Work Complete' status for Step 2 (currently '{ticket.status}')"
+                detail=f"Ticket must be in 'Work Complete' or 'Solved' status for Step 2 (currently '{ticket.status}')"
             )
 
     citizen_response = request.citizen_response.strip().upper()
@@ -410,7 +410,7 @@ async def auto_close_timed_out_tickets():
         result = await session.execute(
             text("""
                 SELECT id, citizen_token FROM tickets
-                WHERE status = 'Work Complete'
+                WHERE status IN ('Work Complete', 'Solved')
                   AND updated_at < NOW() - INTERVAL '72 hours'
             """)
         )

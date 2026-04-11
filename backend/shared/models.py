@@ -1,4 +1,4 @@
-﻿"""
+"""
 CitySync ΓÇö SQLAlchemy ORM Models
 All 9 PostgreSQL tables defined here with proper types, constraints, and relationships.
 PostGIS geography columns use GeoAlchemy2.
@@ -79,7 +79,7 @@ class Ticket(Base):
     __table_args__ = (
         CheckConstraint("severity BETWEEN 1 AND 10", name="ck_tickets_severity"),
         CheckConstraint(
-            "status IN ('Pending','Processing','In Progress','Work Complete','Resolved','Rejected','Human Review')",
+            "status IN ('Pending','Processing','In Progress','Solved','Work Complete','Resolved','Rejected','Human Review')",
             name="ck_tickets_status",
         ),
     )

@@ -1,4 +1,4 @@
-﻿"""
+"""
 CitySync ΓÇö Role-based access control via Python decorators.
 Replaces OPA for hackathon ΓÇö readable, zero setup.
 """
@@ -197,10 +197,12 @@ DEMO_TOKENS = {
 
 # Dispatch roster ΓÇö `worker_id` matches JWT `sub` for each demo field worker token
 FIELD_WORKERS = [
-    {"worker_id": "field_worker_demo_001", "display_name": "Field Crew Alpha"},
-    {"worker_id": "field_worker_demo_002", "display_name": "Field Crew Beta"},
-    {"worker_id": "field_worker_demo_003", "display_name": "Fire Crew 1 - Fort Station"},
-    {"worker_id": "field_worker_demo_004", "display_name": "Rescue Squad 7"},
+    {"worker_id": "crew_fire_1", "display_name": "Fire Crew 1 - Fort Station"},
+    {"worker_id": "crew_swd_1", "display_name": "SWD Drainage Crew Alpha"},
+    {"worker_id": "crew_roads_1", "display_name": "Roads Asphalt Crew"},
+    {"worker_id": "crew_sanitation_1", "display_name": "Sanitation Cleanup Crew"},
+    {"worker_id": "crew_police_1", "display_name": "Police Patrol Unit 7"},
+    {"worker_id": "crew_general_1", "display_name": "General Field Crew Beta"},
 ]
 
 

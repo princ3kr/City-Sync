@@ -68,7 +68,7 @@ export default function VerificationPanel({ ticketId, mode = 'citizen', currentS
     }
   }
 
-  const isWorkComplete = ticketStatus === 'Work Complete'
+  const isWorkComplete = ticketStatus === 'Work Complete' || ticketStatus === 'Solved'
   const isResolved = ticketStatus === 'Resolved'
   const isClosed = ticketStatus === 'Resolved' || ticketStatus === 'Rejected'
 

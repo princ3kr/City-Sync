@@ -100,7 +100,15 @@ async def init_database():
         try:
             await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(100);"))
             await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS officer_notes TEXT;"))
-            print("   ✓ Columns updated")
+            
+            # Migration for 'Solved' status check constraint
+            print("   🔧 Updating status check constraint...")
+            await conn.execute(text("ALTER TABLE tickets DROP CONSTRAINT IF EXISTS ck_tickets_status;"))
+            await conn.execute(text("""
+                ALTER TABLE tickets ADD CONSTRAINT ck_tickets_status 
+                CHECK (status IN ('Pending','Processing','In Progress','Solved','Work Complete','Resolved','Rejected','Human Review'));
+            """))
+            print("   ✓ Columns and constraints updated")
         except Exception as e:
             print(f"   ! Columns update: {e}")
 

@@ -101,6 +101,11 @@ export default function CitizenPortal({ onSubmitted }) {
         payload.sha256_hash = await getImageHash(b64)
       }
       const resp = await submitComplaint(payload)
+      if (resp.data.message && resp.data.message.toLowerCase().includes('already reported')) {
+        alert(`THE PROBLEM IS ALREADY REPORTED AND THE PRIORITY SCORE HAVE BEEN INCREASED with the ticket id of ${resp.data.ticket_id}`)
+      } else if (resp.data.message && resp.data.message.toLowerCase().includes('previously resolved')) {
+        alert(`This problem was previously resolved or rejected. Ticket ID: ${resp.data.ticket_id}`)
+      }
       setResult(resp.data)
       onSubmitted?.(resp.data)
     } catch (err) {
@@ -151,7 +156,7 @@ export default function CitizenPortal({ onSubmitted }) {
         </div>
 
         <div className="card bg-elevated">
-          <StatusTimeline ticketId={result.ticket_id} />
+          <StatusTimeline ticketId={result.ticket_id} isFresh={true} />
         </div>
 
         <div className="flex gap-12 mt-8">
