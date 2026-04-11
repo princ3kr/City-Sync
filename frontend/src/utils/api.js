@@ -60,3 +60,5 @@ export const getVerifyMetrics = () =>
 export const getDemoTokens = () => api.get('/api/demo-tokens')
 
 export default api
+
+export const getMe = () => api.get('/api/me')
