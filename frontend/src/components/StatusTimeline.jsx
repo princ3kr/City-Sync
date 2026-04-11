@@ -63,7 +63,9 @@ export default function StatusTimeline({ ticketId }) {
       <div className="timeline">
         {STATUS_STEPS.map((step, i) => {
           const isDone = step.done.includes(currentStatus)
-          const isActive = step.status === currentStatus || (step.status === 'Processing' && currentStatus === 'Pending')
+          // Only the most specific active step gets the "Current" badge
+          const isActive = step.status === currentStatus ||
+            (step.status === 'Pending' && currentStatus === 'Pending')
           return (
             <div key={step.status} className="timeline-item">
               <div className={`timeline-dot ${isDone ? 'done' : isActive ? 'active' : 'pending'}`} />
