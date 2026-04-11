@@ -775,3 +775,25 @@ a:hover { color: var(--accent-blue); }
   h1 { font-size: 2rem; }
   .nav-inner { gap: 12px; }
 }
+
+/* --- Priority Bar (dev2) ------------------------------------------------------ */
+.priority-bar-container { display: flex; flex-direction: column; gap: 6px; }
+.priority-bar-track { height: 6px; background: var(--bg-elevated); border-radius: var(--radius-full); overflow: hidden; }
+.priority-bar-fill { height: 100%; border-radius: var(--radius-full); transition: width 600ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* --- Horizontal Timeline (dev2) ----------------------------------------------- */
+.status-timeline-container { padding: 10px 0; }
+.timeline-horizontal { margin: 20px 0; }
+
+/* --- Utilities (dev2) --------------------------------------------------------- */
+.font-mono { font-family: 'SF Mono', 'Fira Code', monospace; }
+.relative { position: relative; }
+.absolute { position: absolute; }
+.text-center { text-align: center; }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+.text-muted { color: var(--text-muted); }
+.font-bold { font-weight: 700; }
+.uppercase { text-transform: uppercase; }
+.inline { display: inline; }
+.opacity-60 { opacity: 0.6; }

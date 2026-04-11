@@ -1,5 +1,5 @@
-"""
-CitySync — Pydantic request/response schemas.
+﻿"""
+CitySync ΓÇö Pydantic request/response schemas.
 """
 import re
 from datetime import datetime
@@ -7,7 +7,7 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-# ── Submission ─────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Submission ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class SubmitComplaintRequest(BaseModel):
     description: str = Field(..., min_length=5, max_length=2000)
     latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
@@ -30,7 +30,7 @@ class SubmitComplaintResponse(BaseModel):
     estimated_processing_ms: int = 400
 
 
-# ── Ticket ─────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Ticket ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class TicketStatus(BaseModel):
     ticket_id: str
     category: Optional[str]
@@ -43,7 +43,7 @@ class TicketStatus(BaseModel):
     submitted_at: datetime
     updated_at: datetime
     upvote_count: int
-    # GPS coordinates depend on caller's role — may be fuzzed or omitted
+    # GPS coordinates depend on caller's role ΓÇö may be fuzzed or omitted
     location: Optional[dict] = None  # {"lat": ..., "lng": ..., "fuzz_level": "officer|public"}
     cluster_info: Optional[dict] = None  # {"cluster_id": ..., "member_count": ...}
 
@@ -55,7 +55,13 @@ class TicketListResponse(BaseModel):
     page_size: int
 
 
-# ── Classification ─────────────────────────────────────────────────────────────
+class AssignTicketRequest(BaseModel):
+    """Officer assigns a queued ticket to a field worker (dispatch)."""
+
+    assignee_id: str = Field(..., min_length=4, max_length=80)
+
+
+# ΓöÇΓöÇ Classification ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class ClassificationResult(BaseModel):
     intent: str  # valid_complaint | query | spam | abuse
     category: str
@@ -65,7 +71,7 @@ class ClassificationResult(BaseModel):
     reasoning: Optional[str]
 
 
-# ── Dedup / Cluster ────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Dedup / Cluster ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class ClusterResult(BaseModel):
     is_duplicate: bool
     cluster_id: Optional[str]
@@ -74,16 +80,16 @@ class ClusterResult(BaseModel):
     distance_meters: Optional[float]
 
 
-# ── Priority ───────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Priority ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class PriorityResult(BaseModel):
     score: float
     tier: str  # Critical | High | Medium | Low
     breakdown: dict  # Score components for transparency
 
 
-# ── Routing ────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Routing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class WebhookPayload(BaseModel):
-    """CitySync Webhook Spec v1 — no PII, fuzzed coordinates only."""
+    """CitySync Webhook Spec v1 ΓÇö no PII, fuzzed coordinates only."""
     ticket_id: str
     category: str
     severity: int
@@ -98,7 +104,7 @@ class WebhookPayload(BaseModel):
     # No phone, no raw GPS, no citizen identity
 
 
-# ── Verification ───────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Verification ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class Step1Request(BaseModel):
     ticket_id: str
     field_worker_token: str
@@ -129,13 +135,13 @@ class CommissionerOverrideRequest(BaseModel):
     reason: str
 
 
-# ── Upvote ─────────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Upvote ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class UpvoteRequest(BaseModel):
     ticket_id: str
     citizen_token: str
 
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Metrics ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class GatewayMetrics(BaseModel):
     request_count: int
     rate_limit_hits: int

@@ -5,9 +5,11 @@ import { Shield, Map, Search, AlertCircle, Heart, CheckCircle2, Sun, Moon } from
 import CitizenPortal from './components/CitizenPortal'
 import OfficerMap from './components/OfficerMap'
 import AdminDashboard from './components/AdminDashboard'
+import DeptPortal from './components/DeptPortal'
 import StatusTimeline from './components/StatusTimeline'
 import VerificationPanel from './components/VerificationPanel'
 import { useSocket } from './hooks/useSocket'
+import { getDemoTokens } from './utils/api'
 
 // ── Theme Context ──────────────────────────────────────────────────────────────
 const ThemeContext = createContext()
@@ -79,15 +81,37 @@ function ToastContainer({ toasts, removeToast }) {
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────────
-function Nav({ onAddToast }) {
+function Nav({ role, setRole, onAddToast }) {
   const { theme, toggleTheme } = useTheme()
-  const [role, setRole] = useState(localStorage.getItem('citysync_role') || 'citizen')
 
-  const changeRole = (r) => {
+  const changeRole = async (r) => {
+    try {
+      const { data } = await getDemoTokens()
+      const tokenForRole = {
+        citizen: data.citizen,
+        officer: data.officer,
+        admin: data.admin,
+        dept_swd: data.dept_swd,
+        dept_roads: data.dept_roads,
+        dept_fire: data.dept_fire,
+      }[r]
+      if (tokenForRole) localStorage.setItem('citysync_token', tokenForRole)
+    } catch {
+      /* gateway offline — keep existing token */
+    }
     setRole(r)
     localStorage.setItem('citysync_role', r)
     onAddToast({ message: `Switched to ${r} view`, type: 'info' })
   }
+
+  const roleLevel = {
+    citizen: 0,
+    officer: 1,
+    dept_swd: 1,
+    dept_roads: 1,
+    dept_fire: 1,
+    admin: 2
+  }[role] || 0
 
   return (
     <nav className="nav">
@@ -112,19 +136,24 @@ function Nav({ onAddToast }) {
           <NavLink to="/track" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
             🔍 Track
           </NavLink>
-          {role !== 'citizen' && (
-            <>
-              <NavLink to="/officer" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-                🗺 Map
-              </NavLink>
-              <NavLink to="/admin" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
-                📊 Admin
-              </NavLink>
-            </>
+          {roleLevel >= 1 && (
+            <NavLink to="/officer" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+              🗺 Map
+            </NavLink>
+          )}
+          {roleLevel >= 1 && (
+            <NavLink to="/department" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+              🏢 Dept
+            </NavLink>
+          )}
+          {roleLevel >= 2 && (
+            <NavLink to="/admin" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+              📊 Admin
+            </NavLink>
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           {/* Theme Toggle */}
           <motion.button
             className="theme-toggle"
@@ -146,21 +175,52 @@ function Nav({ onAddToast }) {
             </AnimatePresence>
           </motion.button>
 
-          {/* Role Selector */}
-          <select
-            value={role}
-            onChange={(e) => changeRole(e.target.value)}
-            className="select"
-            style={{
-              width: 'auto', fontSize: '0.7rem', padding: '4px 10px',
-              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)', cursor: 'pointer'
-            }}
-          >
-            <option value="citizen">👤 Citizen</option>
-            <option value="officer">🛡️ Officer</option>
-            <option value="admin">⚙️ Admin</option>
-          </select>
+          {/* Role switcher for demo */}
+          {(() => {
+            const isOfficer = role === 'officer' || role.startsWith('dept_')
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', paddingRight: 4 }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <span style={{ fontSize: '0.70rem', color: 'var(--text-muted)', fontWeight: 600 }}>DEMO:</span>
+                  {[
+                    { id: 'citizen', label: 'Citizen' },
+                    { id: 'officer', label: 'Officer' },
+                    { id: 'admin', label: 'Admin' },
+                  ].map(({ id, label }) => (
+                    <button
+                      key={id}
+                      className={`btn btn-sm ${((id === 'officer' && isOfficer) || role === id) ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ padding: '4px 10px', fontSize: '0.68rem', borderRadius: 'var(--radius-sm)' }}
+                      onClick={() => changeRole(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {isOfficer && (
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--accent-blue)', fontWeight: 600 }}>SCOPE:</span>
+                    {[
+                      { id: 'officer', label: 'City-wide' },
+                      { id: 'dept_fire', label: 'Fire' },
+                      { id: 'dept_swd', label: 'SWD' },
+                      { id: 'dept_roads', label: 'Roads' },
+                    ].map(({ id, label }) => (
+                      <button
+                        key={id}
+                        className={`btn btn-sm ${role === id ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ padding: '2px 8px', fontSize: '0.62rem', height: 'auto', minHeight: 0, borderRadius: 'var(--radius-sm)' }}
+                        onClick={() => changeRole(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
       </div>
     </nav>
@@ -334,14 +394,33 @@ function TrackPage() {
 // ── Root App ───────────────────────────────────────────────────────────────────
 export default function App() {
   const [toasts, setToasts] = useState([])
-  const [toastCounter, setToastCounter] = useState(0)
+  const [role, setRole] = useState(localStorage.getItem('citysync_role') || 'citizen')
+  let toastId = 0
 
   const addToast = ({ message, type = 'info' }) => {
-    const id = toastCounter
-    setToastCounter(prev => prev + 1)
+    const id = ++toastId
     setToasts(prev => [...prev, { id, message, type }])
   }
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id))
+
+  // ── Demo tokens: align JWT with saved DEMO ROLE (officer map dispatch, etc.)
+  useEffect(() => {
+    getDemoTokens()
+      .then((res) => {
+        const data = res.data || {}
+        const storedRole = localStorage.getItem('citysync_role') || 'citizen'
+        const forRole = {
+          citizen: data.citizen,
+          officer: data.officer,
+          admin: data.admin,
+          dept_swd: data.dept_swd,
+          dept_roads: data.dept_roads,
+          dept_fire: data.dept_fire,
+        }[storedRole]
+        if (forRole) localStorage.setItem('citysync_token', forRole)
+      })
+      .catch(() => {})
+  }, [])
 
   const { lastEvent } = useSocket()
   useEffect(() => {
@@ -353,17 +432,27 @@ export default function App() {
     }
   }, [lastEvent])
 
+  const roleLevel = {
+    citizen: 0,
+    officer: 1,
+    dept_swd: 1,
+    dept_roads: 1,
+    dept_fire: 1,
+    admin: 2
+  }[role] || 0
+
   return (
     <ThemeProvider>
       <BrowserRouter>
         <div className="app-layout">
-          <Nav onAddToast={addToast} />
+          <Nav role={role} setRole={setRole} onAddToast={addToast} />
           <main className="page-content">
             <Routes>
               <Route path="/" element={<HomePage onAddToast={addToast} />} />
               <Route path="/track" element={<TrackPage />} />
-              <Route path="/officer" element={<div className="container" style={{ padding: '40px 24px' }}><OfficerMap /></div>} />
-              <Route path="/admin" element={<div className="container" style={{ padding: '40px 24px' }}><AdminDashboard /></div>} />
+              <Route path="/officer" element={roleLevel >= 1 ? <div className="container" style={{ padding: '40px 24px' }}><OfficerMap /></div> : <div className="container text-center pt-32">Access Denied</div>} />
+              <Route path="/department" element={roleLevel >= 1 ? <DeptPortal /> : <div className="container text-center pt-32">Access Denied</div>} />
+              <Route path="/admin" element={roleLevel >= 2 ? <div className="container" style={{ padding: '40px 24px' }}><AdminDashboard /></div> : <div className="container text-center pt-32">Access Denied</div>} />
             </Routes>
           </main>
         </div>

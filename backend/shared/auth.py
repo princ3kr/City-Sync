@@ -1,6 +1,6 @@
-"""
-CitySync — Role-based access control via Python decorators.
-Replaces OPA for hackathon — readable, zero setup.
+﻿"""
+CitySync ΓÇö Role-based access control via Python decorators.
+Replaces OPA for hackathon ΓÇö readable, zero setup.
 """
 import functools
 from datetime import datetime, timedelta, timezone
@@ -14,7 +14,7 @@ from shared.config import settings
 
 security = HTTPBearer(auto_error=False)
 
-# ── Role hierarchy ────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Role hierarchy ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 ROLE_HIERARCHY = {
     "citizen": 0,
     "field_worker": 1,
@@ -24,7 +24,44 @@ ROLE_HIERARCHY = {
     "commissioner": 5,
 }
 
-# ── Token creation ─────────────────────────────────────────────────────────────
+# Category ΓåÆ municipal department code (must match seed_data.CATEGORY_DEPARTMENT_MAP)
+CATEGORY_TO_DEPT = {
+    "Pothole": "ROADS",
+    "Flooding": "SWD",
+    "Drainage": "SWD",
+    "Street Light": "LIGHTS",
+    "Garbage": "SWM",
+    "Water Supply": "HYD",
+    "Building Hazard": "BLDG",
+    "Live Wire": "ELEC_EMG",
+    "Noise": "ROADS",
+    "Fire Hazard": "FIRE",
+    "Smoke": "FIRE",
+    "Gas Leak": "FIRE",
+    "Other": "ROADS",
+}
+
+
+def categories_for_department(dept_code: str) -> list[str]:
+    """Return complaint categories visible to a department-scoped officer."""
+    return [c for c, d in CATEGORY_TO_DEPT.items() if d == dept_code]
+
+
+def department_categories_filter(user: dict) -> list[str] | None:
+    """
+    If the JWT carries dept_code (demo department login), return allowed categories.
+    None means no extra filter (city-wide officer / admin).
+    """
+    role = user.get("role", "public")
+    if role in ("admin", "commissioner"):
+        return None
+    code = user.get("dept_code")
+    if not code or role != "officer":
+        return None
+    cats = categories_for_department(code)
+    return cats if cats else None
+
+# ΓöÇΓöÇ Token creation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def create_token(subject: str, role: str = "citizen", extra: dict | None = None) -> str:
     """Create a JWT token for a citizen or officer."""
     now = datetime.now(timezone.utc)
@@ -39,7 +76,7 @@ def create_token(subject: str, role: str = "citizen", extra: dict | None = None)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-# ── Token parsing ──────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Token parsing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT. Raises HTTPException on failure."""
     try:
@@ -56,12 +93,12 @@ def decode_token(token: str) -> dict:
         )
 
 
-# ── FastAPI dependencies ──────────────────────────────────────────────────────
+# ΓöÇΓöÇ FastAPI dependencies ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """
-    FastAPI dependency — extracts caller identity.
+    FastAPI dependency ΓÇö extracts caller identity.
     Returns a dict with 'sub' (citizen token) and 'role'.
     Allows unauthenticated access but marks role as 'public'.
     """
@@ -72,7 +109,7 @@ async def get_current_user(
 
 def require_role(minimum_role: str):
     """
-    Decorator factory — enforces minimum role on a FastAPI route.
+    Decorator factory ΓÇö enforces minimum role on a FastAPI route.
 
     Usage:
         @router.get("/admin/stats")
@@ -104,19 +141,17 @@ def require_role(minimum_role: str):
     return decorator
 
 
-# ── Field-level response filtering ────────────────────────────────────────────
+# ΓöÇΓöÇ Field-level response filtering ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     """
     Remove or fuzz fields based on caller role.
     Officers see less fuzz than public; admins see slightly less.
-    Fuzzing is deterministic — seeded from ticket_id so markers never jitter.
     """
-    import hashlib
     from shared.privacy import fuzz_for_role
 
     filtered = dict(ticket_dict)
 
-    # Remove PII regardless of role — citizen_token is never exposed
+    # Remove PII regardless of role ΓÇö citizen_token is never exposed
     filtered.pop("citizen_token", None)
 
     # Handle GPS based on role
@@ -124,33 +159,55 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     raw_lng = filtered.pop("raw_lng", None)
 
     if raw_lat and raw_lng:
-        # Derive a stable integer seed from ticket_id + role so the same ticket
-        # always gets the same fuzz offset — no marker jitter on re-fetch
-        ticket_id = filtered.get("ticket_id", "")
-        seed_bytes = hashlib.sha256(f"{ticket_id}:{role}".encode()).digest()
-        seed = int.from_bytes(seed_bytes[:8], "big")
-
-        fuzzed_lat, fuzzed_lng = fuzz_for_role(raw_lat, raw_lng, role, seed=seed)
+        fuzzed_lat, fuzzed_lng = fuzz_for_role(raw_lat, raw_lng, role)
         filtered["location"] = {
             "lat": round(fuzzed_lat, 5),
             "lng": round(fuzzed_lng, 5),
             "fuzz_level": role,
         }
 
-    # Public cannot see description (privacy — could reveal exact address)
+    # Public cannot see description (privacy ΓÇö could reveal exact address)
     if role == "public":
         filtered.pop("description", None)
         filtered.pop("image_key", None)
-        filtered.pop("assigned_to", None)
-        filtered.pop("officer_notes", None)
+        filtered.pop("assigned_worker_id", None)
+        filtered.pop("assigned_worker_label", None)
 
     return filtered
 
 
-# ── Demo tokens (hackathon only) ──────────────────────────────────────────────
+# ΓöÇΓöÇ Demo tokens (hackathon only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 DEMO_TOKENS = {
     "officer": create_token("officer_demo_001", role="officer"),
     "admin": create_token("admin_demo_001", role="admin"),
     "commissioner": create_token("commissioner_demo_001", role="commissioner"),
     "field_worker": create_token("field_worker_demo_001", role="field_worker"),
+    "field_worker_2": create_token("field_worker_demo_002", role="field_worker"),
+    # Department-scoped officers (same role="officer", JWT carries dept_code)
+    "dept_swd": create_token(
+        "dept_officer_swd_demo", role="officer", extra={"dept_code": "SWD", "dept_name": "Storm Water Drains"}
+    ),
+    "dept_roads": create_token(
+        "dept_officer_roads_demo", role="officer", extra={"dept_code": "ROADS", "dept_name": "Roads & Infrastructure"}
+    ),
+    "dept_fire": create_token(
+        "dept_officer_fire_demo", role="officer", extra={"dept_code": "FIRE", "dept_name": "Fire Department"}
+    ),
 }
+
+# Dispatch roster ΓÇö `worker_id` matches JWT `sub` for each demo field worker token
+FIELD_WORKERS = [
+    {"worker_id": "field_worker_demo_001", "display_name": "Field Crew Alpha"},
+    {"worker_id": "field_worker_demo_002", "display_name": "Field Crew Beta"},
+    {"worker_id": "field_worker_demo_003", "display_name": "Fire Crew 1 - Fort Station"},
+    {"worker_id": "field_worker_demo_004", "display_name": "Rescue Squad 7"},
+]
+
+
+def field_worker_label(worker_id: str | None) -> str | None:
+    if not worker_id:
+        return None
+    for w in FIELD_WORKERS:
+        if w["worker_id"] == worker_id:
+            return w["display_name"]
+    return worker_id

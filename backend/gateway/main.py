@@ -1,8 +1,8 @@
-"""
-CitySync — Submission Gateway (Layer 1 + 2)
+﻿"""
+CitySync ΓÇö Submission Gateway (Layer 1 + 2)
 Accepts citizen complaint submissions, rate-limits, assigns ticket IDs,
 publishes to Redis Stream, and returns HTTP 202 in ~140ms.
-All AI processing is async — citizen is unblocked immediately.
+All AI processing is async ΓÇö citizen is unblocked immediately.
 """
 import base64
 import hashlib
@@ -11,6 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from contextlib import asynccontextmanager
+
 import socketio
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,22 +20,61 @@ from fastapi.responses import JSONResponse
 
 from shared.config import settings
 from shared.logging_config import configure_logging, get_logger, set_trace_id, set_ticket_id
-from shared.auth import create_token, get_current_user
+from shared.auth import (
+    ROLE_HIERARCHY,
+    FIELD_WORKERS,
+    create_token,
+    department_categories_filter,
+    field_worker_label,
+    filter_ticket_fields,
+    get_current_user,
+)
 from shared.privacy import hmac_tokenize, strip_exif
 from shared.redis_client import publish_event, get_redis, Streams, get_top_categories
-from shared.schemas import SubmitComplaintRequest, SubmitComplaintResponse, TicketListResponse
+from shared.schemas import (
+    AssignTicketRequest,
+    SubmitComplaintRequest,
+    SubmitComplaintResponse,
+    TicketListResponse,
+)
+from shared.database import get_db
+from shared.models import Ticket
 from gateway.rate_limiter import check_rate_limit
+from sqlalchemy import select, and_, func
+from ai_pipeline.classifier import classify_complaint
 
 configure_logging(settings.log_level)
 log = get_logger("gateway")
 
-# ── FastAPI app ───────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from shared.redis_client import create_consumer_group, Streams
+    # Ensure consumer groups exist for all streams
+    for stream in [
+        Streams.RAW_SUBMISSIONS, Streams.CLASSIFIED_COMPLAINTS,
+        Streams.PRIORITY_BOOST, Streams.STATUS_UPDATES,
+    ]:
+        await create_consumer_group(stream, "citysync", start_id="$")
+    log.info("gateway_started", port=settings.gateway_port)
+    yield
+
+# ΓöÇΓöÇ FastAPI app ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
 app = FastAPI(
     title="CitySync Gateway",
     description="Citizen complaint submission gateway",
     version="1.0.0",
     docs_url="/docs",
+    lifespan=lifespan,
 )
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    import logging
+    logging.getLogger('gateway').error(f'Validation Error: {exc.body} -> {exc.errors()}')
+    return JSONResponse(status_code=422, content={'detail': exc.errors()})
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,7 +84,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Socket.io for real-time push ──────────────────────────────────────────────
+# ΓöÇΓöÇ Socket.io for real-time push ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
@@ -80,27 +121,40 @@ async def subscribe_ticket(sid, data):
         await sio.enter_room(sid, f"ticket:{ticket_id}")
 
 
-# ── Helper: generate ticket ID ────────────────────────────────────────────────
+# ΓöÇΓöÇ Helper: generate ticket ID ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 def generate_ticket_id() -> str:
-    """TKT-XXXXXXXXXX format — 10 alphanumeric chars."""
+    """TKT-XXXXXXXXXX format ΓÇö 10 alphanumeric chars."""
     suffix = uuid.uuid4().hex[:10].upper()
     return f"TKT-{suffix}"
 
 
-# ── Startup ───────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-async def startup():
-    from shared.redis_client import create_consumer_group, Streams
-    # Ensure consumer groups exist for all streams
-    for stream in [
-        Streams.RAW_SUBMISSIONS, Streams.CLASSIFIED_COMPLAINTS,
-        Streams.PRIORITY_BOOST, Streams.STATUS_UPDATES,
-    ]:
-        await create_consumer_group(stream, "citysync", start_id="$")
-    log.info("gateway_started", port=settings.gateway_port)
+def _require_officer(user: dict) -> None:
+    if ROLE_HIERARCHY.get(user.get("role"), -1) < ROLE_HIERARCHY["officer"]:
+        raise HTTPException(status_code=403, detail="Officer role or higher required")
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+async def _fuzzed_lat_lng_for_ids(session, ticket_ids: list[str]) -> dict[str, tuple[float, float]]:
+    """Read fuzzed map coordinates from PostGIS (officer map + citizen track)."""
+    from sqlalchemy import bindparam, text
+
+    if not ticket_ids:
+        return {}
+    stmt = text("""
+        SELECT id::text AS tid,
+            ST_Y(fuzzed_gps::geometry) AS lat,
+            ST_X(fuzzed_gps::geometry) AS lng
+        FROM tickets
+        WHERE fuzzed_gps IS NOT NULL AND id IN :ids
+    """).bindparams(bindparam("ids", expanding=True))
+    rows = (await session.execute(stmt, {"ids": ticket_ids})).mappings().all()
+    out: dict[str, tuple[float, float]] = {}
+    for r in rows:
+        if r["lat"] is not None and r["lng"] is not None:
+            out[r["tid"]] = (float(r["lat"]), float(r["lng"]))
+    return out
+
+
+# ΓöÇΓöÇ Routes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 @app.get("/health")
 async def health():
     r = await get_redis()
@@ -126,12 +180,12 @@ async def submit_complaint(
     t_start = time.perf_counter()
     trace_id = set_trace_id()
 
-    # ── 1. Extract citizen identity → HMAC token ─────────────────────────────
+    # ΓöÇΓöÇ 1. Extract citizen identity ΓåÆ HMAC token ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     # Use JWT sub, or fall back to IP address for anonymous citizens
     raw_identity = user.get("sub") or request.client.host
     citizen_token = hmac_tokenize(raw_identity)
 
-    # ── 2. Rate limit check ───────────────────────────────────────────────────
+    # ΓöÇΓöÇ 2. Rate limit check ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     try:
         await check_rate_limit(citizen_token)
     except HTTPException:
@@ -139,12 +193,77 @@ async def submit_complaint(
         await r.incr("citysync:metrics:rate_limit_hits")
         raise
 
-    # ── 3. Assign ticket ID ────────────────────────────────────────────────────
+    # ΓöÇΓöÇ 2.5 Advanced Semantic Duplicate Check ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # We call AI synchronously here to 'understand' the problem intent & location
+    # for a high-accuracy duplicate search before we publish a new ticket.
+    try:
+        classification = await classify_complaint(trace_id, payload.description, payload.language)
+    except Exception as e:
+        log.warning("duplicate_check_ai_failed", error=str(e))
+        classification = None
+
+    bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": "duplicate"}) 
+
+    async with get_db() as session:
+        # Match using Trigram Similarity (fuzzy matching) + AI Intent/Category
+        # Threshold 0.4 handles "Pothole at SV Rd" vs "Damaged road SV road"
+        stmt = select(Ticket).where(
+            func.similarity(Ticket.description, payload.description) > 0.4
+        )
+        
+        # If AI extract succeeded, refine search by category or location mention
+        if classification:
+            stmt = stmt.where(
+                (Ticket.category == classification.category) |
+                (Ticket.location_mention == classification.location_mention)
+            )
+
+        # Order by most similar first
+        stmt = stmt.order_by(func.similarity(Ticket.description, payload.description).desc()).limit(1)
+        
+        res = await session.execute(stmt)
+        existing = res.scalars().first()
+
+        if existing:
+            is_own = (existing.citizen_token == citizen_token)
+
+            # Resolved/Rejected = ignore/reject without change
+            if existing.status in ("Resolved", "Rejected"):
+                log.info("duplicate_ignored_closed", ticket_id=existing.id, status=existing.status)
+                return SubmitComplaintResponse(
+                    ticket_id=existing.id,
+                    status=existing.status,
+                    message="≡ƒöÆ This problem was previously resolved or rejected. ID: " + existing.id,
+                    bearer_token=bearer_token
+                )
+
+            # Active = upvote + boost score
+            existing.upvote_count += 1
+            existing.priority_score = min(existing.priority_score + 2.0, 100.0)
+            await session.commit()
+
+            if is_own:
+                msg = f"≡ƒôì Problem already exists in our system. ID: {existing.id}"
+                log.info("duplicate_own", ticket_id=existing.id)
+            else:
+                msg = f"≡ƒôê This problem was already reported. Priority score has been improved! ID: {existing.id}"
+                log.info("duplicate_other", ticket_id=existing.id)
+            
+            return SubmitComplaintResponse(
+                ticket_id=existing.id,
+                status="Processing", # Frontend expect processing for live view
+                message=msg,
+                bearer_token=bearer_token
+            )
+
+    # ΓöÇΓöÇ 3. Assign ticket ID ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+
+    # ΓöÇΓöÇ 3. Assign ticket ID ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     ticket_id = generate_ticket_id()
     set_ticket_id(ticket_id)
     log.info("complaint_received", ticket_id=ticket_id, trace_id=trace_id)
 
-    # ── 4. Process image (strip EXIF, validate hash) ──────────────────────────
+    # ΓöÇΓöÇ 4. Process image (strip EXIF, validate hash) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     image_key = None
     extracted_gps = None
 
@@ -158,7 +277,7 @@ async def submit_complaint(
                 if actual_hash != payload.sha256_hash:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Image SHA-256 hash mismatch — possible tampering",
+                        detail="Image SHA-256 hash mismatch ΓÇö possible tampering",
                     )
 
             # Strip EXIF, extract GPS coordinates
@@ -170,17 +289,17 @@ async def submit_complaint(
             log.info("image_uploaded", ticket_id=ticket_id, image_key=image_key)
         except Exception as e:
             log.warning("image_processing_failed", ticket_id=ticket_id, error=str(e))
-            # Don't fail submission — process without image
+            # Don't fail submission ΓÇö process without image
 
-    # ── 5. Determine GPS coordinates ──────────────────────────────────────────
+    # ΓöÇΓöÇ 5. Determine GPS coordinates ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     # Priority: explicit payload GPS > EXIF GPS > None (geocoder will resolve from description)
     lat = payload.latitude or (extracted_gps["lat"] if extracted_gps else None)
     lng = payload.longitude or (extracted_gps["lng"] if extracted_gps else None)
 
-    # ── 6. Issue new bearer token for this citizen session ────────────────────
+    # ΓöÇΓöÇ 6. Issue new bearer token for this citizen session ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": ticket_id})
 
-    # ── 7. Publish to Redis Stream raw.submissions ───────────────────────────
+    # ΓöÇΓöÇ 7. Publish to Redis Stream raw.submissions ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     event_data = {
         "ticket_id": ticket_id,
         "trace_id": trace_id,
@@ -196,7 +315,7 @@ async def submit_complaint(
     await publish_event(Streams.RAW_SUBMISSIONS, event_data)
     log.info("event_published", stream=Streams.RAW_SUBMISSIONS, ticket_id=ticket_id)
 
-    # ── 8. Track metrics ──────────────────────────────────────────────────────
+    # ΓöÇΓöÇ 8. Track metrics ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     r = await get_redis()
     await r.incr("citysync:metrics:request_count")
     latency_ms = (time.perf_counter() - t_start) * 1000
@@ -219,24 +338,20 @@ async def get_ticket(
     ticket_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Get ticket status — response fields filtered by caller role."""
-    from sqlalchemy import select, func, cast, Float
+    """Get ticket status ΓÇö response fields filtered by caller role."""
+    from sqlalchemy import select
     from shared.database import get_db
     from shared.models import Ticket
-    from shared.auth import filter_ticket_fields
 
     async with get_db() as session:
-        # Extract lat/lng from PostGIS fuzzed_gps column
-        query = select(
-            Ticket,
-            func.ST_Y(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lat"),
-            func.ST_X(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lng"),
-        ).where(Ticket.id == ticket_id)
-        result = await session.execute(query)
-        row = result.first()
-        if not row:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
             raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
-        ticket, lat, lng = row
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None and ticket.category not in dept_cats:
+            raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")
+        coord_map = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
+    lat_lng = coord_map.get(ticket_id)
 
     role = user.get("role", "public")
     ticket_dict = {
@@ -252,9 +367,11 @@ async def get_ticket(
         "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
         "upvote_count": ticket.upvote_count,
         "citizen_token": ticket.citizen_token,
-        "raw_lat": lat,
-        "raw_lng": lng,
+        "assigned_worker_id": ticket.assigned_worker_id,
+        "assigned_worker_label": field_worker_label(ticket.assigned_worker_id),
     }
+    if lat_lng:
+        ticket_dict["raw_lat"], ticket_dict["raw_lng"] = lat_lng[0], lat_lng[1]
     return filter_ticket_fields(ticket_dict, role)
 
 
@@ -268,34 +385,39 @@ async def list_tickets(
     user: dict = Depends(get_current_user),
 ):
     """List tickets with optional filters. Results filtered by caller role."""
-    from sqlalchemy import select, func, cast, Float
+    from sqlalchemy import select
     from shared.database import get_db
     from shared.models import Ticket
-    from shared.auth import filter_ticket_fields
 
     page_size = min(page_size, 100)
     offset = (page - 1) * page_size
 
     async with get_db() as session:
-        # Extract lat/lng from PostGIS fuzzed_gps column
-        query = select(
-            Ticket,
-            func.ST_Y(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lat"),
-            func.ST_X(func.ST_GeomFromWKB(Ticket.fuzzed_gps)).cast(Float).label("lng"),
-        )
+        query = select(Ticket)
         if ward_id:
             query = query.where(Ticket.ward_id == ward_id)
         if status:
-            query = query.where(Ticket.status == status)
+            if "," in status:
+                parts = [s.strip() for s in status.split(",") if s.strip()]
+                if len(parts) == 1:
+                    query = query.where(Ticket.status == parts[0])
+                else:
+                    query = query.where(Ticket.status.in_(parts))
+            else:
+                query = query.where(Ticket.status == status.strip())
         if category:
             query = query.where(Ticket.category == category)
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None:
+            query = query.where(Ticket.category.in_(dept_cats))
         query = query.order_by(Ticket.priority_score.desc()).offset(offset).limit(page_size)
         result = await session.execute(query)
-        rows = result.all()
+        tickets = result.scalars().all()
+        coord_map = await _fuzzed_lat_lng_for_ids(session, [t.id for t in tickets])
 
     role = user.get("role", "public")
     filtered = []
-    for t, lat, lng in rows:
+    for t in tickets:
         td = {
             "ticket_id": t.id,
             "category": t.category,
@@ -309,12 +431,129 @@ async def list_tickets(
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "upvote_count": t.upvote_count,
             "citizen_token": t.citizen_token,
-            "raw_lat": lat,
-            "raw_lng": lng,
+            "assigned_worker_id": t.assigned_worker_id,
+            "assigned_worker_label": field_worker_label(t.assigned_worker_id),
         }
+        if t.id in coord_map:
+            td["raw_lat"], td["raw_lng"] = coord_map[t.id][0], coord_map[t.id][1]
         filtered.append(filter_ticket_fields(td, role))
 
     return {"tickets": filtered, "page": page, "page_size": page_size, "total": len(filtered)}
+
+
+@app.get("/api/me")
+async def who_am_i(user: dict = Depends(get_current_user)):
+    """Non-sensitive JWT claims for the UI (demo department scope, etc.)."""
+    return {
+        "sub": user.get("sub"),
+        "role": user.get("role", "public"),
+        "dept_code": user.get("dept_code"),
+        "dept_name": user.get("dept_name"),
+    }
+
+
+@app.get("/api/field-workers")
+async def list_field_workers(user: dict = Depends(get_current_user)):
+    """Demo roster for officer dispatch ΓÇö production would query HR/workforce DB."""
+    _require_officer(user)
+    return {"workers": FIELD_WORKERS}
+
+
+@app.post("/api/tickets/{ticket_id}/assign")
+async def assign_ticket_to_worker(
+    ticket_id: str,
+    body: AssignTicketRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Officer assigns a Pending (or reassigns In Progress) ticket to a field worker."""
+    from sqlalchemy import text
+
+    _require_officer(user)
+    allowed = {w["worker_id"] for w in FIELD_WORKERS}
+    if body.assignee_id not in allowed:
+        raise HTTPException(status_code=400, detail="Unknown assignee_id ΓÇö not in field worker roster")
+
+    async with get_db() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        dept_cats = department_categories_filter(user)
+        if dept_cats is not None and ticket.category not in dept_cats:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if ticket.status not in ("Pending", "In Progress"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Tickets can only be assigned from the dispatch queue (status Pending or In Progress). Current: '{ticket.status}'",
+            )
+
+        await session.execute(
+            text(
+                """
+                UPDATE tickets SET
+                    status = 'In Progress',
+                    assigned_worker_id = :aid,
+                    updated_at = NOW()
+                WHERE id = :tid
+                """
+            ),
+            {"aid": body.assignee_id, "tid": ticket_id},
+        )
+        await session.refresh(ticket)
+
+    await publish_event(
+        Streams.STATUS_UPDATES,
+        {
+            "ticket_id": ticket_id,
+            "citizen_token": ticket.citizen_token,
+            "status": "In Progress",
+            "category": ticket.category or "",
+            "severity_tier": ticket.severity_tier or "",
+            "priority_score": str(ticket.priority_score or 0),
+            "ward_id": ticket.ward_id or "",
+            "message": f"Assigned to {field_worker_label(body.assignee_id)} ΓÇö field work has started.",
+        },
+    )
+
+    ward_id = ticket.ward_id or ""
+    await emit_ticket_update(
+        ticket_id,
+        ward_id,
+        {
+            "ticket_id": ticket.id,
+            "category": ticket.category,
+            "severity_tier": ticket.severity_tier,
+            "priority_score": ticket.priority_score,
+            "status": "In Progress",
+            "ward_id": ward_id,
+            "upvote_count": ticket.upvote_count,
+            "assigned_worker_id": body.assignee_id,
+            "assigned_worker_label": field_worker_label(body.assignee_id),
+        },
+    )
+
+    role = user.get("role", "public")
+    ticket_dict = {
+        "ticket_id": ticket.id,
+        "category": ticket.category,
+        "severity": ticket.severity,
+        "severity_tier": ticket.severity_tier,
+        "priority_score": ticket.priority_score,
+        "status": ticket.status,
+        "description": ticket.description,
+        "ward_id": ticket.ward_id,
+        "submitted_at": ticket.submitted_at.isoformat() if ticket.submitted_at else None,
+        "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
+        "upvote_count": ticket.upvote_count,
+        "citizen_token": ticket.citizen_token,
+        "assigned_worker_id": ticket.assigned_worker_id,
+        "assigned_worker_label": field_worker_label(ticket.assigned_worker_id),
+    }
+    async with get_db() as session:
+        cmap = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
+    if ticket_id in cmap:
+        ticket_dict["raw_lat"], ticket_dict["raw_lng"] = cmap[ticket_id][0], cmap[ticket_id][1]
+
+    return {"ok": True, "ticket": filter_ticket_fields(ticket_dict, role)}
 
 
 @app.post("/api/upvote")
@@ -322,7 +561,7 @@ async def upvote_ticket(
     ticket_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Citizen 'me too' upvote — one per citizen per ticket."""
+    """Citizen 'me too' upvote ΓÇö one per citizen per ticket."""
     from shared.database import get_db
     from shared.models import Ticket, TicketUpvote
     from shared.auth import create_token
@@ -350,69 +589,9 @@ async def upvote_ticket(
     return {"message": "Upvote recorded", "ticket_id": ticket_id, "upvote_count": ticket.upvote_count}
 
 
-@app.patch("/api/tickets/{ticket_id}/assign")
-async def assign_field_worker(
-    ticket_id: str,
-    payload: dict,
-    user: dict = Depends(get_current_user),
-):
-    """Officer assigns a field worker and optionally overrides category/severity."""
-    from shared.database import get_db
-    from shared.models import Ticket
-
-    role = user.get("role", "public")
-    if role not in ("officer", "admin", "commissioner", "supervisor", "field_worker"):
-        raise HTTPException(status_code=403, detail="Officer role required")
-
-    assigned_to = payload.get("assigned_to", "").strip()
-    category    = payload.get("category", "").strip()
-    severity    = payload.get("severity")
-    notes       = payload.get("notes", "").strip()
-
-    if not assigned_to:
-        raise HTTPException(status_code=422, detail="assigned_to is required")
-
-    async with get_db() as session:
-        ticket = await session.get(Ticket, ticket_id)
-        if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
-
-        ticket.status = "In Progress"
-        if category:
-            ticket.category = category
-        if severity is not None:
-            ticket.severity = int(severity)
-        
-        ticket.assigned_to = assigned_to
-        ticket.officer_notes = notes
-
-        await session.commit()
-
-    # Emit real-time update
-    from shared.auth import filter_ticket_fields
-    await emit_ticket_update(ticket_id, ticket.ward_id or "all", {
-        "type": "ticket.update", "data": {
-            "ticket_id": ticket.id,
-            "status": ticket.status,
-            "category": ticket.category,
-            "severity": ticket.severity,
-            "ward_id": ticket.ward_id or "",
-            "assigned_to": ticket.assigned_to,
-            "officer_notes": ticket.officer_notes,
-        }
-    })
-
-    return {
-        "message": f"Ticket assigned to {assigned_to}",
-        "ticket_id": ticket_id,
-        "status": "In Progress",
-        "assigned_to": assigned_to,
-    }
-
-
-@app.get("/api/metrics")
+@app.get("/api/stats/gateway")
 async def get_metrics():
-    """Gateway metrics — polled by admin dashboard every 5 seconds."""
+    """Gateway metrics ΓÇö polled by admin dashboard every 5 seconds."""
     r = await get_redis()
 
     request_count = int(await r.get("citysync:metrics:request_count") or 0)
@@ -460,13 +639,68 @@ async def get_demo_tokens():
     import secrets as s
     citizen_token = create_token(hmac_tokenize(s.token_hex(8)), role="citizen")
     return {
-        "note": "For demo/testing only — remove in production",
+        "note": "For demo/testing only ΓÇö remove in production",
         "citizen": citizen_token,
         **DEMO_TOKENS,
     }
 
 
-# ── Socket.io emit helpers (called by other services) ─────────────────────────
+# ΓöÇΓöÇ Internal Webhook Storage ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# Stores incoming POST webhooks in Redis since the standalone dept-portal got dropped.
+@app.post("/api/webhook/{dept_code}")
+async def receive_webhook(dept_code: str, request: Request):
+    """Fallback native webhook receptor."""
+    r = await get_redis()
+    raw_body = await request.body()
+    try:
+        import json
+        payload = json.loads(raw_body)
+    except:
+        payload = {"error": "Invalid json"}
+    
+    entry = {
+        "id": int(time.time() * 1000),
+        "dept_code": dept_code,
+        "ticket_id": request.headers.get("x-citysync-ticketid", "unknown"),
+        "signature_valid": bool(request.headers.get("x-citysync-signature")),
+        "attempt": int(request.headers.get("x-citysync-attempt", 1)),
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "payload": payload
+    }
+    
+    await r.lpush("citysync:webhooks", json.dumps(entry))
+    await r.ltrim("citysync:webhooks", 0, 199)
+    log.info("webhook_received", dept=dept_code, ticket_id=entry["ticket_id"])
+    return {"status": "accepted", "ticket_id": entry["ticket_id"]}
+
+@app.get("/api/stats/webhooks")
+async def get_webhooks():
+    """Fetch stored webhooks for native dashboard."""
+    r = await get_redis()
+    import json
+    raw_logs = await r.lrange("citysync:webhooks", 0, -1)
+    logs = [json.loads(x) for x in raw_logs]
+    
+    tickets = []
+    # Convert webhooks to pseudo-tickets for the UI
+    for log_item in logs:
+        p = log_item.get("payload", {})
+        tickets.append({
+            "ticket_id": p.get("ticket_id"),
+            "dept_code": log_item.get("dept_code"),
+            "category": p.get("category", "Other"),
+            "severity_tier": p.get("severity_tier", "Low"),
+            "priority_score": float(p.get("priority_score") or 0),
+            "ward_id": p.get("ward_id"),
+            "status": "Accepted",
+            "received_at": log_item.get("received_at")
+        })
+    tickets.sort(key=lambda t: t["priority_score"], reverse=True)
+
+    return {"log": logs, "tickets": tickets}
+
+
+# ΓöÇΓöÇ Socket.io emit helpers (called by other services) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 async def emit_ticket_update(ticket_id: str, ward_id: str, data: dict):
     """Emit status update to both the ticket room and ward room."""
     await sio.emit("ticket.update", data, room=f"ticket:{ticket_id}")
@@ -474,7 +708,7 @@ async def emit_ticket_update(ticket_id: str, ward_id: str, data: dict):
         await sio.emit("ticket.update", data, room=f"ward:{ward_id}")
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Entry point ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

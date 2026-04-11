@@ -1,5 +1,5 @@
-"""
-CitySync — SQLAlchemy ORM Models
+﻿"""
+CitySync ΓÇö SQLAlchemy ORM Models
 All 9 PostgreSQL tables defined here with proper types, constraints, and relationships.
 PostGIS geography columns use GeoAlchemy2.
 """
@@ -31,7 +31,7 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── Tickets ───────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Tickets ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class Ticket(Base):
     __tablename__ = "tickets"
 
@@ -59,15 +59,13 @@ class Ticket(Base):
     resolution_log_id: Mapped[Optional[str]] = mapped_column(
         UUID(as_uuid=False), ForeignKey("resolution_log.id"), nullable=True
     )
-    # PostGIS geography — stores fuzzed coordinates (raw GPS never written here)
+    # PostGIS geography ΓÇö stores fuzzed coordinates (raw GPS never written here)
     fuzzed_gps: Mapped[Optional[object]] = mapped_column(Geography("POINT", srid=4326))
-    # Raw GPS stored temporarily in Redis for dedup processing — never in DB
+    # Raw GPS stored temporarily in Redis for dedup processing ΓÇö never in DB
     intent: Mapped[Optional[str]] = mapped_column(String(30))
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     upvote_count: Mapped[int] = mapped_column(Integer, default=0)
     trust_modifier: Mapped[float] = mapped_column(Float, default=0.0)
-    assigned_to: Mapped[Optional[str]] = mapped_column(String(100))   # field worker name
-    officer_notes: Mapped[Optional[str]] = mapped_column(Text)        # officer assignment notes
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )
@@ -75,6 +73,8 @@ class Ticket(Base):
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
     routed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Officer dispatch ΓÇö JWT `sub` of the assigned field worker (demo: field_worker_demo_001)
+    assigned_worker_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
 
     __table_args__ = (
         CheckConstraint("severity BETWEEN 1 AND 10", name="ck_tickets_severity"),
@@ -85,7 +85,7 @@ class Ticket(Base):
     )
 
 
-# ── Departments ───────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Departments ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class Department(Base):
     __tablename__ = "departments"
 
@@ -98,7 +98,7 @@ class Department(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-# ── Ticket Clusters ───────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Ticket Clusters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class TicketCluster(Base):
     __tablename__ = "ticket_clusters"
 
@@ -113,7 +113,7 @@ class TicketCluster(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-# ── Ticket Upvotes ─────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Ticket Upvotes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class TicketUpvote(Base):
     __tablename__ = "ticket_upvotes"
 
@@ -127,7 +127,7 @@ class TicketUpvote(Base):
     )
 
 
-# ── Ward Boundaries ────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Ward Boundaries ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class Ward(Base):
     __tablename__ = "wards"
 
@@ -137,7 +137,7 @@ class Ward(Base):
     boundary: Mapped[Optional[object]] = mapped_column(Geography("POLYGON", srid=4326))
 
 
-# ── Department Routes ──────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Department Routes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class DepartmentRoute(Base):
     __tablename__ = "department_routes"
 
@@ -157,7 +157,7 @@ class DepartmentRoute(Base):
     )
 
 
-# ── Severity Overrides ─────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Severity Overrides ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class SeverityOverride(Base):
     __tablename__ = "severity_overrides"
 
@@ -171,7 +171,7 @@ class SeverityOverride(Base):
     reason: Mapped[Optional[str]] = mapped_column(String(200))
 
 
-# ── Webhook Log ────────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Webhook Log ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class WebhookLog(Base):
     __tablename__ = "webhook_log"
 
@@ -187,7 +187,7 @@ class WebhookLog(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
-# ── Verification Submissions ───────────────────────────────────────────────────
+# ΓöÇΓöÇ Verification Submissions ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class VerificationSubmission(Base):
     __tablename__ = "verification_submissions"
 
@@ -202,7 +202,7 @@ class VerificationSubmission(Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-# ── Resolution Log ─────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Resolution Log ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class ResolutionLog(Base):
     __tablename__ = "resolution_log"
 
@@ -225,7 +225,7 @@ class ResolutionLog(Base):
     )
 
 
-# ── Model Call Log ─────────────────────────────────────────────────────────────
+# ΓöÇΓöÇ Model Call Log ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class ModelCall(Base):
     __tablename__ = "model_calls"
 
