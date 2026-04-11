@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, Clock, Truck, ShieldCheck, HelpCircle } from 'lucide-react'
-import { getTicketStatus } from '../utils/api'
+import { getTicket } from '../utils/api'
 
 const STATUS_CONFIG = {
   'Pending': { icon: <Clock size={16}/>, color: 'var(--text-muted)', label: 'Received' },
@@ -22,7 +22,7 @@ export default function StatusTimeline({ ticketId }) {
     let interval
     const fetchStatus = async () => {
       try {
-        const resp = await getTicketStatus(ticketId)
+        const resp = await getTicket(ticketId)
         setTicket(resp.data)
       } catch (err) {
         console.error(err)
