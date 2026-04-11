@@ -1,18 +1,18 @@
 import React, { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Camera, MapPin, Send, Mic, ArrowLeft, CheckCircle, AlertCircle, X } from 'lucide-react'
 import { submitComplaint } from '../utils/api'
 
 const CATEGORIES = [
-  { value: 'Pothole',         icon: '🕳️', label: 'Pothole' },
-  { value: 'Flooding',        icon: '🌊', label: 'Flooding' },
-  { value: 'Drainage',        icon: '🚰', label: 'Drainage' },
-  { value: 'Street Light',    icon: '💡', label: 'Street Light' },
-  { value: 'Garbage',         icon: '🗑️', label: 'Garbage' },
-  { value: 'Water Supply',    icon: '💧', label: 'Water Supply' },
-  { value: 'Building Hazard', icon: '🏚️', label: 'Building Hazard' },
-  { value: 'Live Wire',       icon: '⚡', label: 'Live Wire' },
-  { value: 'Noise',           icon: '🔊', label: 'Noise' },
-  { value: 'Other',           icon: '📋', label: 'Other' },
+  { value: 'Pothole',         icon: '🕳️', desc: 'Broken road surface' },
+  { value: 'Flooding',        icon: '🌊', desc: 'Water accumulation' },
+  { value: 'Drainage',        icon: '🚰', desc: 'Blocked sewage' },
+  { value: 'Street Light',    icon: '💡', desc: 'Lights not working' },
+  { value: 'Garbage',         icon: '🗑️', desc: 'Waste buildup' },
+  { value: 'Water Supply',    icon: '💧', desc: 'No water/Leakage' },
+  { value: 'Live Wire',       icon: '⚡', desc: 'Electrical hazard' },
+  { value: 'Other',           icon: '📋', desc: 'Anything else' },
 ]
 
 function imageToBase64(file) {
@@ -31,234 +31,231 @@ async function getImageHash(base64) {
 }
 
 export default function CitizenPortal({ onSubmitted }) {
-  const [step, setStep] = useState('form') // form | submitting | success | error
+  const [wizardStep, setWizardStep] = useState(0) // 0: Category, 1: Media, 2: Details
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
 
+  const [category, setCategory] = useState('')
   const [description, setDescription] = useState('')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
-  const [useGPS, setUseGPS] = useState(true)
   const [gpsCoords, setGpsCoords] = useState(null)
-  const [gpsError, setGpsError] = useState(null)
-  const [language, setLanguage] = useState('en')
+  const [isListening, setIsListening] = useState(false)
 
-  // ── GPS capture ─────────────────────────────────────────────────────────────
+  // ── Handlers ───────────────────────────────────────────────────────────────
   const captureGPS = () => {
-    if (!navigator.geolocation) {
-      setGpsError('GPS not available in this browser')
-      return
-    }
+    if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude })
-        setGpsError(null)
-      },
-      () => setGpsError('GPS access denied — your description will be used for geocoding'),
+      (pos) => setGpsCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err) => console.error(err)
     )
   }
 
-  // ── Image drop ───────────────────────────────────────────────────────────────
-  const onDrop = useCallback((acceptedFiles) => {
-    const file = acceptedFiles[0]
-    if (file) {
-      setImageFile(file)
-      setImagePreview(URL.createObjectURL(file))
+  const startVoiceInput = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Voice recognition not supported in this browser.')
+      return
     }
-  }, [])
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.onstart = () => setIsListening(true)
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript
+      setDescription(prev => (prev ? prev + ' ' + transcript : transcript))
+    }
+    recognition.onend = () => setIsListening(false)
+    recognition.start()
+  }
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'image/*': ['.jpg', '.jpeg', '.png', '.webp'] },
-    maxFiles: 1,
-    maxSize: 10 * 1024 * 1024,
+  const { getRootProps, getInputProps } = useDropzone({
+    onDrop: (files) => {
+      const file = files[0]
+      if (file) {
+        setImageFile(file)
+        setImagePreview(URL.createObjectURL(file))
+        setWizardStep(2) // Auto-advance to details after photo
+      }
+    },
+    accept: { 'image/*': ['.jpg', '.jpeg', '.png'] },
+    maxFiles: 1
   })
 
-  // ── Submit ───────────────────────────────────────────────────────────────────
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!description.trim()) return
-
-    setStep('submitting')
-
+  const handleFinalSubmit = async () => {
+    setSubmitting(true)
+    setError(null)
     try {
       const payload = {
-        description: description.trim(),
-        language,
+        description: `${category}: ${description}`,
         latitude: gpsCoords?.lat || null,
         longitude: gpsCoords?.lng || null,
       }
-
       if (imageFile) {
-        const base64 = await imageToBase64(imageFile)
-        const hash = await getImageHash(base64)
-        payload.image_base64 = base64
-        payload.sha256_hash = hash
+        const b64 = await imageToBase64(imageFile)
+        payload.image_base64 = b64
+        payload.sha256_hash = await getImageHash(b64)
       }
-
-      const response = await submitComplaint(payload)
-      setResult(response.data)
-      setStep('success')
-      onSubmitted?.(response.data)
+      const resp = await submitComplaint(payload)
+      setResult(resp.data)
+      onSubmitted?.(resp.data)
     } catch (err) {
-      console.error(err)
-      setStep('error')
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  // ── Success screen ──────────────────────────────────────────────────────────
-  if (step === 'success' && result) {
+  // ── Render Helpers ──────────────────────────────────────────────────────────
+  const nextStep = () => setWizardStep(prev => prev + 1)
+  const prevStep = () => setWizardStep(prev => prev - 1)
+
+  if (result) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px 0' }}>
-        <div style={{ fontSize: '4rem', marginBottom: 16 }}>✅</div>
-        <h2 style={{ color: 'var(--tier-low)', marginBottom: 12 }}>Complaint Received!</h2>
-        <div className="card" style={{ display: 'inline-block', textAlign: 'left', minWidth: 320, marginBottom: 24 }}>
-          <div style={{ marginBottom: 12 }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>TICKET ID</span>
-            <div style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-accent)' }}>
-              {result.ticket_id}
-            </div>
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>STATUS</span>
-            <div style={{ color: 'var(--tier-low)', fontWeight: 600 }}>🔄 {result.status}</div>
-          </div>
-          <p style={{ fontSize: '0.875rem' }}>{result.message}</p>
-          <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            ⏱ AI classification: ~{result.estimated_processing_ms}ms async
-          </div>
-        </div>
-        <div>
-          <button className="btn btn-outline btn-sm" onClick={() => {
-            setStep('form'); setDescription(''); setImageFile(null); setImagePreview(null)
-            setGpsCoords(null); setResult(null)
-          }}>
-            Submit Another
-          </button>
-        </div>
-      </div>
+      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="card text-center" style={{ padding: '40px 24px' }}>
+        <CheckCircle className="mx-auto mb-4" size={64} color="var(--tier-low)" />
+        <h2 className="mb-2">Complaint Registered!</h2>
+        <p className="mb-6">Ticket ID: <span className="font-mono text-accent">{result.ticket_id}</span></p>
+        <button className="btn btn-primary" onClick={() => window.location.reload()}>Finish</button>
+      </motion.div>
     )
   }
 
+  const variants = {
+    enter: (direction) => ({ x: direction > 0 ? 300 : -300, opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (direction) => ({ x: direction < 0 ? 300 : -300, opacity: 0 })
+  }
+
   return (
-    <div style={{ maxWidth: 640, margin: '0 auto' }}>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div className="citizen-portal">
+      {/* Progress Bar */}
+      <div style={{ marginBottom: 32, height: 4, background: 'var(--bg-elevated)', borderRadius: 2 }}>
+        <motion.div 
+          animate={{ width: `${(wizardStep + 1) * 33.3}%` }} 
+          style={{ height: '100%', background: 'var(--grad-accent)', borderRadius: 2 }} 
+        />
+      </div>
 
-        {/* Description */}
-        <div className="form-group">
-          <label className="form-label">Describe the issue *</label>
-          <textarea
-            className="textarea"
-            placeholder="e.g. Deep pothole near SV Road, Andheri. Large vehicles swerving suddenly. Very dangerous! / बड़ा गड्ढा है रास्ते में..."
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            rows={4}
-            required
-          />
-          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-            {description.length}/2000 · Hindi/English/Hinglish supported
-          </span>
-        </div>
-
-        {/* Language select */}
-        <div className="form-group">
-          <label className="form-label">Input Language</label>
-          <select className="select" value={language} onChange={e => setLanguage(e.target.value)}>
-            <option value="en">English</option>
-            <option value="hi">हिंदी (Hindi)</option>
-            <option value="hi-en">Hinglish</option>
-            <option value="mr">मराठी (Marathi)</option>
-          </select>
-        </div>
-
-        {/* Photo Upload */}
-        <div className="form-group">
-          <label className="form-label">Photo (optional but recommended)</label>
-          {imagePreview ? (
-            <div style={{ position: 'relative' }}>
-              <img src={imagePreview} alt="Preview" className="dropzone-preview" />
-              <button
-                type="button"
-                className="btn btn-danger btn-sm"
-                style={{ position: 'absolute', top: 8, right: 8 }}
-                onClick={() => { setImageFile(null); setImagePreview(null) }}
-              >
-                ✕ Remove
-              </button>
-              <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                🔒 EXIF metadata stripped · GPS extracted separately
-              </div>
+      <AnimatePresence mode="wait" custom={wizardStep}>
+        {wizardStep === 0 && (
+          <motion.div
+            key="step0" custom={wizardStep} variants={variants} initial="enter" animate="center" exit="exit"
+            className="flex-col gap-20"
+          >
+            <div className="text-center">
+              <h2 className="mb-4">What's the issue?</h2>
+              <p>Select a category that matches your problem.</p>
             </div>
-          ) : (
-            <div {...getRootProps()} className={`dropzone${isDragActive ? ' active' : ''}`}>
-              <input {...getInputProps()} />
-              <div className="dropzone-icon">📷</div>
-              <div className="dropzone-text">
-                {isDragActive ? 'Drop to upload...' : 'Drag & drop or click to upload'}
-                <br />
-                <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>JPG, PNG, WebP · Max 10MB</span>
-              </div>
+            <div className="grid-2" style={{ gap: 12 }}>
+              {CATEGORIES.map(cat => (
+                <button
+                  key={cat.value}
+                  className={`card card-sm flex-col items-center gap-8 ${category === cat.value ? 'animate-glow' : ''}`}
+                  style={{ 
+                    cursor: 'pointer', textAlign: 'center', 
+                    border: category === cat.value ? '2px solid var(--neon-blue)' : '1px solid var(--border)' 
+                  }}
+                  onClick={() => { setCategory(cat.value); nextStep() }}
+                >
+                  <span style={{ fontSize: '2rem' }}>{cat.icon}</span>
+                  <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{cat.value}</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{cat.desc}</div>
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-
-        {/* GPS */}
-        <div className="form-group">
-          <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <input
-              type="checkbox"
-              checked={useGPS}
-              onChange={e => setUseGPS(e.target.checked)}
-              style={{ width: 16, height: 16 }}
-            />
-            Share Location (improves routing accuracy)
-          </label>
-          {useGPS && (
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <button type="button" className="btn btn-outline btn-sm" onClick={captureGPS}>
-                📍 Capture GPS
-              </button>
-              {gpsCoords && (
-                <span style={{ color: 'var(--tier-low)', fontSize: '0.8rem' }}>
-                  ✓ {gpsCoords.lat.toFixed(5)}, {gpsCoords.lng.toFixed(5)}
-                </span>
-              )}
-              {gpsError && <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{gpsError}</span>}
-            </div>
-          )}
-        </div>
-
-        {/* Privacy notice */}
-        <div style={{
-          background: 'rgba(59, 130, 246, 0.06)',
-          border: '1px solid rgba(59, 130, 246, 0.15)',
-          borderRadius: 'var(--radius-md)',
-          padding: '12px 16px',
-          fontSize: '0.78rem',
-          color: 'var(--text-muted)',
-        }}>
-          🔒 <strong style={{ color: 'var(--text-secondary)' }}>Privacy Protected</strong>
-          · Your identity is HMAC-hashed · GPS is ±30m fuzzed for officers · Photos are AES-256 encrypted · 90-day TTL
-        </div>
-
-        {/* Submit */}
-        <button
-          type="submit"
-          className="btn btn-primary btn-lg btn-full"
-          disabled={step === 'submitting' || !description.trim()}
-        >
-          {step === 'submitting' ? (
-            <><div className="spinner" style={{ borderTopColor: '#fff' }} /> Submitting...</>
-          ) : (
-            '🚨 Report Issue'
-          )}
-        </button>
-
-        {step === 'error' && (
-          <div style={{ color: 'var(--tier-critical)', textAlign: 'center', fontSize: '0.875rem' }}>
-            ✗ Submission failed. Please check your connection and try again.
-          </div>
+          </motion.div>
         )}
-      </form>
+
+        {wizardStep === 1 && (
+          <motion.div
+            key="step1" custom={wizardStep} variants={variants} initial="enter" animate="center" exit="exit"
+            className="flex-col gap-20"
+          >
+            <div className="flex items-center gap-12 mb-4">
+              <button onClick={prevStep} className="btn btn-ghost btn-sm p-0"><ArrowLeft size={20}/></button>
+              <h2 className="m-0">Add a Photo</h2>
+            </div>
+            {imagePreview ? (
+              <div className="relative">
+                <img src={imagePreview} className="dropzone-preview" style={{ height: 350 }} />
+                <button 
+                  className="btn btn-danger btn-sm absolute top-8 right-8" 
+                  onClick={() => { setImageFile(null); setImagePreview(null) }}
+                >
+                  <X size={16}/> Remove
+                </button>
+                <div className="mt-16 flex gap-12">
+                  <button className="btn btn-primary btn-full" onClick={nextStep}>Looks Good</button>
+                </div>
+              </div>
+            ) : (
+              <div {...getRootProps()} className="dropzone animate-float" style={{ minHeight: 300, background: 'rgba(59,130,246,0.05)' }}>
+                <input {...getInputProps()} />
+                <Camera size={48} className="mb-16 text-muted" />
+                <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>Tap to Take a Photo</div>
+                <p className="text-sm">Or drag and drop here</p>
+                <button className="btn btn-outline mt-16" onClick={nextStep}>Skip Photo</button>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {wizardStep === 2 && (
+          <motion.div
+            key="step2" custom={wizardStep} variants={variants} initial="enter" animate="center" exit="exit"
+            className="flex-col gap-20"
+          >
+            <div className="flex items-center gap-12 mb-4">
+              <button onClick={prevStep} className="btn btn-ghost btn-sm p-0"><ArrowLeft size={20}/></button>
+              <h2 className="m-0">Final Details</h2>
+            </div>
+
+            <div className="form-group relative">
+              <label className="form-label">Say or type a few words</label>
+              <textarea
+                className="textarea"
+                placeholder="What exactly is the problem?"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                style={{ paddingRight: 48 }}
+              />
+              <button 
+                type="button" 
+                className={`absolute bottom-12 right-12 btn btn-sm ${isListening ? 'btn-danger' : 'btn-ghost'}`}
+                onClick={startVoiceInput}
+                title="Tap to speak"
+              >
+                <Mic size={20} className={isListening ? 'animate-pulse' : ''} />
+              </button>
+            </div>
+
+            <div className="card card-sm bg-surface">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-8">
+                  <MapPin size={20} color={gpsCoords ? 'var(--tier-low)' : 'var(--text-muted)'} />
+                  <span style={{ fontSize: '0.85rem' }}>
+                    {gpsCoords ? 'Location captured ✓' : 'Add location for faster help'}
+                  </span>
+                </div>
+                {!gpsCoords && (
+                  <button className="btn btn-teal btn-sm" onClick={captureGPS}>Add Now</button>
+                )}
+              </div>
+            </div>
+
+            <button 
+              className="btn btn-primary btn-lg mt-16 animate-glow" 
+              onClick={handleFinalSubmit}
+              disabled={submitting || !description.trim()}
+            >
+              {submitting ? 'Sending...' : 'Report Now 🚨'}
+            </button>
+
+            {error && <div className="text-center text-sm" style={{ color: 'var(--tier-critical)' }}>{error}</div>}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

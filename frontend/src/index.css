@@ -19,49 +19,66 @@
   --accent-teal: #14b8a6;
   --accent-indigo: #6366f1;
   --accent-purple: #8b5cf6;
+  
+  /* ── Neon / Fancy Tokens ────────────────────────────────────────────────────── */
+  --neon-blue: #00d2ff;
+  --neon-purple: #9d50bb;
+  --neon-pink: #ff007f;
+  --neon-glow: 0 0 15px rgba(0, 210, 255, 0.4);
+  --neon-border: rgba(0, 210, 255, 0.3);
 
   /* ── Severity Tiers ──────────────────────────────────────────────────────── */
-  --tier-critical: #ef4444;
-  --tier-high: #f97316;
-  --tier-medium: #eab308;
-  --tier-low: #22c55e;
+  --tier-critical: #ff3e3e;
+  --tier-high: #fbbf24;
+  --tier-medium: #3b82f6;
+  --tier-low: #10b981;
 
   /* ── Text ─────────────────────────────────────────────────────────────────── */
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #475569;
-  --text-accent: #60a5fa;
+  --text-primary: #ffffff;
+  --text-secondary: #a0aec0;
+  --text-muted: #718096;
+  --text-accent: #63b3ed;
 
   /* ── Gradients ────────────────────────────────────────────────────────────── */
-  --grad-hero: linear-gradient(135deg, #080c14 0%, #0d1a2e 50%, #0f1624 100%);
-  --grad-accent: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  --grad-teal: linear-gradient(135deg, #14b8a6, #06b6d4);
-  --grad-critical: linear-gradient(135deg, #ef4444, #dc2626);
-  --grad-card: linear-gradient(145deg, rgba(30, 45, 74, 0.6), rgba(20, 29, 46, 0.8));
+  --grad-hero: radial-gradient(circle at top right, #1a2a4a 0%, #080c14 70%);
+  --grad-accent: linear-gradient(135deg, #00d2ff, #9d50bb);
+  --grad-neon: linear-gradient(90deg, #00d2ff, #3a7bd5);
+  --grad-card: linear-gradient(145deg, rgba(26, 36, 64, 0.4), rgba(15, 22, 36, 0.6));
 
   /* ── Shadows / Glows ──────────────────────────────────────────────────────── */
-  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4), 0 1px 4px rgba(0, 0, 0, 0.3);
-  --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.6), 0 1px 4px rgba(0, 0, 0, 0.4);
-  --glow-blue: 0 0 24px rgba(59, 130, 246, 0.3);
-  --glow-critical: 0 0 24px rgba(239, 68, 68, 0.4);
-  --glow-teal: 0 0 20px rgba(20, 184, 166, 0.3);
-
+  --shadow-card: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  --shadow-neon: 0 0 20px rgba(0, 210, 255, 0.2);
+  
   /* ── Typography ──────────────────────────────────────────────────────────── */
-  --font-sans: 'Inter', system-ui, sans-serif;
-  --font-display: 'Space Grotesk', 'Inter', sans-serif;
+  --font-sans: 'Outfit', 'Inter', system-ui, sans-serif;
+  --font-display: 'Inter', sans-serif;
 
   /* ── Spacing & Radius ────────────────────────────────────────────────────── */
-  --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 24px;
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
   --radius-full: 9999px;
 
   /* ── Transitions ─────────────────────────────────────────────────────────── */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  --transition-base: 350ms cubic-bezier(0.23, 1, 0.32, 1);
+  --transition-slow: 500ms cubic-bezier(0.23, 1, 0.32, 1);
 }
+
+/* ── Generic Animations ──────────────────────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(0, 210, 255, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(0, 210, 255, 0.4); }
+}
+
+.animate-float { animation: float 6s ease-in-out infinite; }
+.animate-glow { animation: glow-pulse 4s ease-in-out infinite; }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
 *,
