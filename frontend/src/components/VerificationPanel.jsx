@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { CheckCircle, AlertTriangle, ThumbsUp, ThumbsDown, Camera, X } from 'lucide-react'
 import { submitStep2 } from '../utils/api'
 
-export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
+export default function VerificationPanel({ ticketId, mode = 'citizen', currentStatus }) {
   const [verifying, setVerifying] = useState(false)
   const [done, setDone] = useState(false)
   const [error, setError] = useState(null)
@@ -30,7 +30,10 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
     }
   }
 
-  if (done) {
+  const isWorkComplete = currentStatus === 'Work Complete'
+  const isClosed = currentStatus === 'Resolved' || currentStatus === 'Rejected'
+
+  if (done || isClosed) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="card bg-surface text-center">
         <CheckCircle className="mx-auto mb-12" color="var(--tier-low)" />
@@ -53,21 +56,29 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
       </div>
 
       <div className="flex gap-12">
-        <button 
-          className="btn btn-teal btn-full" 
-          onClick={() => handleVerify(true)}
-          disabled={verifying}
-        >
-          <ThumbsUp size={18} /> Yes, All Good!
-        </button>
-        <button 
-          className="btn btn-outline btn-full" 
-          onClick={() => handleVerify(false)}
-          disabled={verifying}
-          style={{ borderColor: 'var(--tier-critical)', color: 'var(--tier-critical)' }}
-        >
-          <ThumbsDown size={18} /> Not Fixed
-        </button>
+        {isWorkComplete ? (
+          <>
+            <button 
+              className="btn btn-teal btn-full" 
+              onClick={() => handleVerify(true)}
+              disabled={verifying}
+            >
+              <ThumbsUp size={18} /> Yes, All Good!
+            </button>
+            <button 
+              className="btn btn-outline btn-full" 
+              onClick={() => handleVerify(false)}
+              disabled={verifying}
+              style={{ borderColor: 'var(--tier-critical)', color: 'var(--tier-critical)' }}
+            >
+              <ThumbsDown size={18} /> Not Fixed
+            </button>
+          </>
+        ) : (
+          <div className="w-full text-center p-12 card bg-surface text-sm opacity-70 border-dashed" style={{ borderColor: 'var(--border)' }}>
+            Verification will unlock once the field team updates the status to <strong>Work Complete</strong>.
+          </div>
+        )}
       </div>
 
       {error && <div className="mt-12 text-center text-xs" style={{ color: 'var(--tier-critical)' }}>{error}</div>}

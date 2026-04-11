@@ -280,6 +280,7 @@ function HomePage({ onAddToast }) {
 function TrackPage() {
   const [ticketId, setTicketId] = useState('')
   const [tracking, setTracking] = useState(null)
+  const [ticketStatus, setTicketStatus] = useState(null)
 
   return (
     <div className="container" style={{ padding: '80px 24px' }}>
@@ -312,8 +313,12 @@ function TrackPage() {
         {tracking && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
             <div className="grid-2" style={{ gap: 24 }}>
-              <div className="card"><StatusTimeline ticketId={tracking} /></div>
-              <div className="card"><VerificationPanel ticketId={tracking} mode="citizen" /></div>
+              <div className="card">
+                <StatusTimeline ticketId={tracking} onStatusChange={setTicketStatus} />
+              </div>
+              <div className="card">
+                <VerificationPanel ticketId={tracking} mode="citizen" currentStatus={ticketStatus} />
+              </div>
             </div>
           </motion.div>
         )}

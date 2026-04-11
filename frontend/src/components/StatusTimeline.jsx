@@ -14,7 +14,7 @@ const STATUS_CONFIG = {
 
 const STEPS = ['Pending', 'Classified', 'Routed', 'In Progress', 'Resolved']
 
-export default function StatusTimeline({ ticketId }) {
+export default function StatusTimeline({ ticketId, onStatusChange }) {
   const [ticket, setTicket] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -24,6 +24,7 @@ export default function StatusTimeline({ ticketId }) {
       try {
         const resp = await getTicket(ticketId)
         setTicket(resp.data)
+        if (onStatusChange) onStatusChange(resp.data.status)
       } catch (err) {
         console.error(err)
       } finally {
