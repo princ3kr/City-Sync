@@ -42,8 +42,10 @@ export default function StatusTimeline({ ticketId }) {
 
   if (!ticket) {
     return (
-      <div className="card text-center" style={{ borderStyle: 'dashed' }}>
-        <p>Searching for ticket <span className="font-mono">{ticketId}</span>...</p>
+      <div className="card text-center" style={{ borderStyle: 'dashed', borderColor: 'var(--tier-critical)' }}>
+        <HelpCircle className="mx-auto mb-8" size={32} color="var(--tier-critical)" />
+        <p style={{ margin: 0 }}>Ticket <span className="font-mono">{ticketId}</span> not found.</p>
+        <p className="text-sm mt-8 opacity-70">Please check the ticket ID and try again.</p>
       </div>
     )
   }

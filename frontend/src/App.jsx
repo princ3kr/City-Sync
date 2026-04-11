@@ -270,16 +270,7 @@ function HomePage({ onAddToast }) {
             }} />
           </div>
 
-          {submitted && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              style={{ marginTop: 40 }}
-            >
-              <h3 className="mb-16">Live Status</h3>
-              <StatusTimeline ticketId={submitted.ticket_id} />
-            </motion.div>
-          )}
+          {/* Redundant status removed; handled within CitizenPortal success state */}
         </div>
       </section>
     </div>
@@ -300,7 +291,12 @@ function TrackPage() {
           className="input"
           placeholder="TKT-XXXXXX"
           value={ticketId}
-          onChange={e => setTicketId(e.target.value.toUpperCase())}
+          onChange={e => setTicketId(e.target.value.toUpperCase().trim())}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && ticketId.startsWith('TKT-')) {
+              setTracking(ticketId)
+            }
+          }}
           style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.05em' }}
         />
         <button

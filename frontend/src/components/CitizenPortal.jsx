@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, MapPin, Send, Mic, ArrowLeft, CheckCircle, AlertCircle, X } from 'lucide-react'
+import { Camera, MapPin, Send, Mic, ArrowLeft, CheckCircle, AlertCircle, X, Copy, ExternalLink } from 'lucide-react'
 import { submitComplaint } from '../utils/api'
+import StatusTimeline from './StatusTimeline'
 
 const CATEGORIES = [
   { value: 'Pothole',         icon: '🕳️', desc: 'Broken road surface' },
@@ -112,11 +113,52 @@ export default function CitizenPortal({ onSubmitted }) {
 
   if (result) {
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="card text-center" style={{ padding: '40px 24px' }}>
-        <CheckCircle className="mx-auto mb-4" size={64} color="var(--tier-low)" />
-        <h2 className="mb-2">Complaint Registered!</h2>
-        <p className="mb-6">Ticket ID: <span className="font-mono text-accent">{result.ticket_id}</span></p>
-        <button className="btn btn-primary" onClick={() => window.location.reload()}>Finish</button>
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        className="flex-col gap-24"
+      >
+        <div className="card text-center" style={{ padding: '32px 24px', background: 'var(--grad-hero)', border: 'none' }}>
+          <div className="flex-center mx-auto mb-16" style={{ width: 64, height: 64, borderRadius: '50%', background: 'var(--tier-low)', color: 'white' }}>
+            <CheckCircle size={32} />
+          </div>
+          <h2 className="mb-4" style={{ color: 'white' }}>Report Received!</h2>
+          <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '0.9rem' }}>
+            Your issue has been logged and sent to the municipal team.
+          </p>
+        </div>
+
+        <div className="flex-col gap-12">
+          <div className="flex justify-between items-center px-8">
+            <span className="text-xs font-bold opacity-60 uppercase">Ticket Token</span>
+            <span className="text-xs font-bold opacity-60 uppercase">Live Tracking</span>
+          </div>
+          <div className="card card-sm bg-surface flex justify-between items-center">
+            <code className="text-accent font-bold" style={{ fontSize: '1.2rem' }}>{result.ticket_id}</code>
+            <button 
+              className="btn btn-ghost btn-sm" 
+              onClick={() => {
+                navigator.clipboard.writeText(result.ticket_id)
+                alert('Ticket ID copied to clipboard!')
+              }}
+            >
+              <Copy size={16} className="mr-4" /> Copy
+            </button>
+          </div>
+        </div>
+
+        <div className="card bg-elevated">
+          <StatusTimeline ticketId={result.ticket_id} />
+        </div>
+
+        <div className="flex gap-12 mt-8">
+          <button className="btn btn-primary btn-full" onClick={() => window.location.reload()}>
+            New Report
+          </button>
+          <button className="btn btn-outline btn-full" onClick={() => window.location.href = '/track'}>
+            <ExternalLink size={16} className="mr-8" /> Track All
+          </button>
+        </div>
       </motion.div>
     )
   }
