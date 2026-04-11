@@ -32,25 +32,30 @@ def hmac_tokenize(identity: str) -> str:
 # ── Differential Privacy Noise ────────────────────────────────────────────────
 # Gaussian mechanism calibrated to two epsilon values:
 #   ε = 2.0 → officer view      → ±~30m fuzz
-#   ε = 0.5 → public map view   → ±~90m fuzz
+#   ε = 0.5 → public map view   → ±~120m fuzz
 #
-# Sensitivity is ~1 coordinate unit ≈ 111km. We scale by 1/111000 to get metres.
-# Sigma = sensitivity * sqrt(2*ln(1.25/delta)) / epsilon
+# Sigma formula: sigma = (sensitivity_m / 111_000) * sqrt(2*ln(1.25/delta)) / epsilon
+#
+# Target: sigma = 30m at ε=2.0 → sensitivity_m = 30 * 2.0 / 4.845 ≈ 12.39m
+# NOTE: The old code incorrectly used sensitivity_m=111_000 (1 full degree),
+#       producing ~9 degrees (~1000km) of noise — markers were in wrong countries.
 
-def _gaussian_sigma(epsilon: float, sensitivity_m: float = 111_000.0) -> float:
+def _gaussian_sigma(epsilon: float, sensitivity_m: float = 12.39) -> float:
     """
-    Compute Gaussian noise sigma for a given epsilon.
+    Compute Gaussian noise sigma (in degrees) for a given epsilon.
     delta = 1e-5 (standard).
-    sensitivity expressed in degrees (1 degree ≈ 111km).
+
+    sensitivity_m: the Laplace sensitivity in meters (~12.39m gives ±30m at ε=2.0).
+    Returns sigma in degrees (divide meters by 111_000 to convert).
     """
     delta = 1e-5
-    sensitivity_deg = sensitivity_m / 111_000.0  # 1 degree
+    sensitivity_deg = sensitivity_m / 111_000.0
     sigma = sensitivity_deg * math.sqrt(2 * math.log(1.25 / delta)) / epsilon
     return sigma
 
 
 EPSILON_OFFICER = 2.0   # ±~30m
-EPSILON_PUBLIC = 0.5    # ±~90m
+EPSILON_PUBLIC = 0.5    # ±~120m
 
 
 def apply_dp_noise(lat: float, lng: float, epsilon: float, seed: int | None = None) -> tuple[float, float]:
