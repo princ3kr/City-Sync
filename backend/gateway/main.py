@@ -382,24 +382,24 @@ async def assign_field_worker(
             ticket.category = category
         if severity is not None:
             ticket.severity = int(severity)
-        # Store assigned_to in description suffix (no separate column yet)
-        existing_desc = ticket.description or ""
-        if notes:
-            ticket.description = f"{existing_desc}\n\n[Officer Notes] {notes}\n[Assigned to] {assigned_to}"
-        else:
-            ticket.description = f"{existing_desc}\n\n[Assigned to] {assigned_to}"
+        
+        ticket.assigned_to = assigned_to
+        ticket.officer_notes = notes
 
         await session.commit()
 
     # Emit real-time update
     from shared.auth import filter_ticket_fields
-    ticket_dict = {
-        "ticket_id": ticket.id, "status": ticket.status,
-        "category": ticket.category, "severity": ticket.severity,
-        "ward_id": ticket.ward_id or "",
-    }
     await emit_ticket_update(ticket_id, ticket.ward_id or "all", {
-        "type": "ticket.update", "data": ticket_dict
+        "type": "ticket.update", "data": {
+            "ticket_id": ticket.id,
+            "status": ticket.status,
+            "category": ticket.category,
+            "severity": ticket.severity,
+            "ward_id": ticket.ward_id or "",
+            "assigned_to": ticket.assigned_to,
+            "officer_notes": ticket.officer_notes,
+        }
     })
 
     return {

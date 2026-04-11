@@ -42,6 +42,7 @@ export default function AdminDashboard() {
   const [routingMetrics, setRoutingMetrics] = useState(null)
   const [verifyMetrics, setVerifyMetrics] = useState(null)
   const [ticketsByStatus, setTicketsByStatus] = useState([])
+  const [allTickets, setAllTickets] = useState([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState(null)
 
@@ -63,11 +64,14 @@ export default function AdminDashboard() {
       // Build status breakdown from tickets
       const statusMap = { Pending: 0, 'In Progress': 0, 'Work Complete': 0, Resolved: 0, Rejected: 0 }
       const res = await listTickets({ page_size: 100 }).catch(() => ({ data: { tickets: [] } }))
-      ;(res.data.tickets || []).forEach(t => {
+      const tickets = res.data.tickets || []
+      
+      tickets.forEach(t => {
         if (statusMap[t.status] != null) statusMap[t.status]++
         else statusMap['Pending']++
       })
       setTicketsByStatus(Object.entries(statusMap).map(([name, value]) => ({ name, value })))
+      setAllTickets(tickets)
     } finally {
       setLoading(false)
     }
@@ -215,6 +219,55 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* ── Active Assignments Tracker ─────────────────────────────────────────────── */}
+          <div className="card" style={{ marginBottom: 32 }}>
+            <h3 style={{ marginBottom: 16, fontSize: '1rem' }}>👷 Active Field Operations</h3>
+            {allTickets.filter(t => t.assigned_to).length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
+                No active field assignments
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Ticket ID</th>
+                      <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Worker</th>
+                      <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Category</th>
+                      <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Status</th>
+                      <th style={{ padding: '12px 8px', color: 'var(--text-muted)' }}>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allTickets.filter(t => t.assigned_to).map(t => (
+                      <tr key={t.ticket_id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '12px 8px', fontFamily: 'monospace' }}>{t.ticket_id}</td>
+                        <td style={{ padding: '12px 8px', fontWeight: 600 }}>{t.assigned_to}</td>
+                        <td style={{ padding: '12px 8px' }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.1)', fontSize: '0.75rem' }}>
+                            {t.category}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 8px' }}>
+                          <span style={{ 
+                            padding: '2px 8px', borderRadius: 12, fontSize: '0.75rem', fontWeight: 600,
+                            background: t.status === 'In Progress' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255,255,255,0.1)',
+                            color: t.status === 'In Progress' ? '#06b6d4' : 'inherit'
+                          }}>
+                            {t.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 8px', color: 'var(--text-muted)', maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {t.officer_notes || '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* ── AI Pipeline Stats ─────────────────────────────────────────────── */}

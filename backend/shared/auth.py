@@ -141,6 +141,8 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     if role == "public":
         filtered.pop("description", None)
         filtered.pop("image_key", None)
+        filtered.pop("assigned_to", None)
+        filtered.pop("officer_notes", None)
 
     return filtered
 

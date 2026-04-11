@@ -66,6 +66,8 @@ class Ticket(Base):
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     upvote_count: Mapped[int] = mapped_column(Integer, default=0)
     trust_modifier: Mapped[float] = mapped_column(Float, default=0.0)
+    assigned_to: Mapped[Optional[str]] = mapped_column(String(100))   # field worker name
+    officer_notes: Mapped[Optional[str]] = mapped_column(Text)        # officer assignment notes
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )

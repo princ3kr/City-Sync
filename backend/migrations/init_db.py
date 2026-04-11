@@ -95,6 +95,15 @@ async def init_database():
         await conn.run_sync(Base.metadata.create_all)
         print("   ✓ All 9 tables created")
 
+        # 2.5 Add new columns if they are missing
+        print("🔧 Running structural migrations (if any)...")
+        try:
+            await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(100);"))
+            await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS officer_notes TEXT;"))
+            print("   ✓ Columns updated")
+        except Exception as e:
+            print(f"   ! Columns update: {e}")
+
         # 3. Create spatial indexes
         print("🗺  Creating spatial indexes...")
         for stmt in SPATIAL_INDEXES_SQL.strip().split(";"):

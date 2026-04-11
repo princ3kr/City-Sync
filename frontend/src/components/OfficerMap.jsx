@@ -163,7 +163,15 @@ export default function OfficerMap() {
 
       {selectedTicket && (
         <div style={{ position: 'absolute', bottom: 24, right: 24, width: 360, zIndex: 1000 }}>
-          <TicketDetailPanel ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />
+          <TicketDetailPanel
+            key={selectedTicket.ticket_id}
+            ticket={selectedTicket}
+            onClose={() => setSelectedTicket(null)}
+            onAssigned={(tid) => {
+              // The socket event usually handles this, but we can optimistically update
+              addOrUpdateTicket({ ...selectedTicket, status: 'In Progress' })
+            }}
+          />
         </div>
       )}
     </div>
@@ -235,15 +243,23 @@ const FIELD_WORKERS = [
 ]
 
 function TicketDetailPanel({ ticket, onClose, onAssigned }) {
-  const { ticket_id, category, severity_tier, priority_score, status, description, ward_id, severity, upvote_count } = ticket
+  const { ticket_id, category, severity_tier, priority_score, status, description, ward_id, severity, upvote_count, assigned_to: initialAssigned, officer_notes: initialNotes } = ticket
 
   const [showAssign, setShowAssign]     = useState(false)
   const [selCategory, setSelCategory]   = useState(category || 'Other')
   const [selSeverity, setSelSeverity]   = useState(severity || 5)
   const [selWorker, setSelWorker]       = useState(null)
-  const [notes, setNotes]               = useState('')
+  const [notes, setNotes]               = useState(initialNotes || '')
   const [assignState, setAssignState]   = useState('idle') // idle | loading | success | error
   const [assignMsg, setAssignMsg]       = useState('')
+
+  // Initialize selected worker if already assigned
+  useEffect(() => {
+    if (initialAssigned) {
+      const worker = FIELD_WORKERS.find(w => `${w.name} (${w.id})` === initialAssigned)
+      if (worker) setSelWorker(worker)
+    }
+  }, [initialAssigned])
 
   const handleAssign = async () => {
     if (!selWorker) return
