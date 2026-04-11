@@ -14,13 +14,17 @@ export default function VerificationPanel({ ticketId, mode = 'citizen' }) {
     try {
       await submitStep2({ 
         ticket_id: ticketId,
-        confirmed, 
+        citizen_response: confirmed ? 'YES' : 'NO',
         role: mode,
         timestamp: new Date().toISOString()
       })
       setDone(true)
     } catch (err) {
-      setError('Connection error. Please try again.')
+      if (err.response?.data?.detail) {
+        setError(err.response.data.detail)
+      } else {
+        setError('Connection error. Please try again.')
+      }
     } finally {
       setVerifying(false)
     }
