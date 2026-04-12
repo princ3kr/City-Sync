@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     twilio_account_sid: str = Field("")
     twilio_auth_token: str = Field("")
     twilio_from_number: str = Field("")
+    twilio_phone_number: str = Field("")
+    twilio_whatsapp_number: str = Field("whatsapp:+14155238886")
     mock_notifications: bool = Field(True)
 
     # ── SendGrid ──────────────────────────────────────────────────────────────

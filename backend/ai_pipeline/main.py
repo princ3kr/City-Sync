@@ -172,6 +172,8 @@ async def process_submission(msg_id: str, data: dict):
             "severity_tier": priority.tier,
             "priority_score": str(priority.score),
             "ward_id": ward_id or "",
+            "updated_by": "CitySync AI",
+            "note": f"Complaint classified as {classification.category} with {priority.tier} priority.",
             "message": f"Your {classification.category} complaint has been classified (Priority: {priority.tier})",
         })
 

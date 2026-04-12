@@ -128,6 +128,8 @@ async def _notify_citizen_for_step2(ticket_id: str, citizen_token: str):
         "citizen_token": citizen_token,
         "status": "Work Complete",
         "action": "step2_confirmation_required",
+        "updated_by": "AI Vision Engine",
+        "note": "Field team submitted proof of work. Step 1 passed vision check.",
         "message": "Your complaint has been marked complete by the field team. Please confirm it is fixed. Reply YES or send a photo within 72 hours.",
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=72)).isoformat(),
     })
@@ -242,6 +244,9 @@ async def _resolve_ticket(ticket_id: str, citizen_token: str, ai_score: float, r
         "resolution_id": resolution_id,
         "resolution_method": "verified",
         "citizen_token": citizen_token,
+        "status": "Resolved",
+        "updated_by": "Citizen",
+        "note": f"Resolution confirmed via {resolution_method}."
     })
 
     # ── Increment citizen trust score (future: +0.05) ─────────────────────────
@@ -276,6 +281,8 @@ async def _reopen_ticket(ticket_id: str, citizen_token: str, reasoning: str) -> 
         "citizen_token": citizen_token,
         "status": "In Progress",
         "action": "reopened",
+        "updated_by": "Citizen",
+        "note": "Citizen rejected resolution — reopening ticket.",
         "message": "The field team has been notified that the issue is not resolved. Priority bumped +10.",
     })
 

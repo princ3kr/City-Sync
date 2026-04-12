@@ -1,8 +1,8 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Camera, MapPin, Send, Mic, ArrowLeft, CheckCircle, AlertCircle, X, Copy, ExternalLink } from 'lucide-react'
-import { submitComplaint } from '../utils/api'
+import { Camera, MapPin, Send, Mic, ArrowLeft, CheckCircle, AlertCircle, X, Copy, ExternalLink, Sparkles } from 'lucide-react'
+import { submitComplaint, getHistory } from '../utils/api'
 import StatusTimeline from './StatusTimeline'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -34,6 +34,7 @@ async function getImageHash(base64) {
 }
 
 export default function CitizenPortal({ onSubmitted, onAddToast }) {
+  const [viewMode, setViewMode] = useState('submit') // 'submit' | 'history'
   const [wizardStep, setWizardStep] = useState(0) // 0: Category, 1: Media, 2: Details
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
@@ -90,8 +91,10 @@ export default function CitizenPortal({ onSubmitted, onAddToast }) {
     setSubmitting(true)
     setError(null)
     try {
+      // If a manual category is selected, prefix it. Otherwise let AI resolve from pure description.
+      const finalDescription = category ? `${category}: ${description}` : description
       const payload = {
-        description: `${category}: ${description}`,
+        description: finalDescription,
         latitude: gpsCoords?.lat || null,
         longitude: gpsCoords?.lng || null,
       }
@@ -178,22 +181,41 @@ export default function CitizenPortal({ onSubmitted, onAddToast }) {
   }
 
   const variants = {
-    enter: (direction) => ({ x: direction > 0 ? 300 : -300, opacity: 0 }),
     center: { x: 0, opacity: 1 },
     exit: (direction) => ({ x: direction < 0 ? 300 : -300, opacity: 0 })
   }
 
   return (
     <div className="citizen-portal">
-      {/* Progress Bar */}
-      <div style={{ marginBottom: 32, height: 4, background: 'var(--bg-elevated)', borderRadius: 2 }}>
-        <motion.div 
-          animate={{ width: `${(wizardStep + 1) * 33.3}%` }} 
-          style={{ height: '100%', background: 'var(--grad-accent)', borderRadius: 2 }} 
-        />
+      {/* View Toggle */}
+      <div className="flex gap-16 mb-24" style={{ borderBottom: '1px solid var(--border)', paddingBottom: 16 }}>
+        <button 
+          className={`btn ${viewMode === 'submit' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setViewMode('submit')}
+        >
+          Submit New Report
+        </button>
+        <button 
+          className={`btn ${viewMode === 'history' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setViewMode('history')}
+        >
+          My History
+        </button>
       </div>
 
-      <AnimatePresence mode="wait" custom={wizardStep}>
+      {viewMode === 'history' ? (
+        <ReportHistory />
+      ) : (
+        <>
+          {/* Progress Bar */}
+          <div style={{ marginBottom: 32, height: 4, background: 'var(--bg-elevated)', borderRadius: 2 }}>
+            <motion.div 
+              animate={{ width: `${(wizardStep + 1) * 33.3}%` }} 
+              style={{ height: '100%', background: 'var(--grad-accent)', borderRadius: 2 }} 
+            />
+          </div>
+
+          <AnimatePresence mode="wait" custom={wizardStep}>
         {wizardStep === 0 && (
           <motion.div
             key="step0" custom={wizardStep} variants={variants} initial="enter" animate="center" exit="exit"
@@ -203,6 +225,37 @@ export default function CitizenPortal({ onSubmitted, onAddToast }) {
               <h2 className="mb-4">What's the issue?</h2>
               <p>Select a category that matches your problem.</p>
             </div>
+            <div className="card card-glass mb-24 p-20 flex-col gap-12" style={{ border: description ? '1px solid var(--neon-blue)' : '1px solid var(--border)' }}>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-8">
+                  <Sparkles size={16} color="var(--neon-blue)" />
+                  <span className="text-xs font-bold uppercase opacity-70">Describe issue directly</span>
+                </div>
+                {description.length > 5 && (
+                  <motion.button 
+                    initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                    className="btn btn-primary btn-sm" 
+                    onClick={() => { if (!category) setCategory(''); nextStep(); }}
+                  >
+                    Continue <Send size={14} className="ml-4" />
+                  </motion.button>
+                )}
+              </div>
+              <textarea 
+                className="textarea" 
+                placeholder="e.g. My street's water line is leaking since morning..." 
+                style={{ minHeight: 80, fontSize: '0.9rem', background: 'rgba(0,0,0,0.2)' }}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+              />
+            </div>
+
+            <div className="flex-center mb-16 px-24">
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              <div style={{ padding: '0 16px', fontSize: '0.7rem', fontWeight: 700, opacity: 0.5, textTransform: 'uppercase' }}>Or Select Category</div>
+              <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+            </div>
+
             <div className="grid-2" style={{ gap: 12 }}>
               {CATEGORIES.map(cat => (
                 <button
@@ -343,7 +396,69 @@ export default function CitizenPortal({ onSubmitted, onAddToast }) {
           </motion.div>
         )}
       </AnimatePresence>
+        </>
+      )}
     </div>
+  )
+}
+
+// ── Report History Component ────────────────────────────────────────────────
+
+function ReportHistory() {
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    getHistory()
+      .then(data => {
+        setHistory(data.tickets)
+      })
+      .catch(err => console.error(err))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="flex-center p-24"><div className="spinner" /></div>
+
+  if (history.length === 0) {
+    return (
+      <div className="card text-center text-muted p-32">
+        <p>You haven't submitted any reports yet.</p>
+      </div>
+    )
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-col gap-16">
+      {history.map(t => (
+        <div key={t.ticket_id} className="card flex-col gap-12" style={{ padding: '16px 20px' }}>
+          <div className="flex justify-between items-start">
+            <div>
+              <span className="text-xs font-bold opacity-60 uppercase">TICKET ID</span>
+              <div className="font-mono text-accent" style={{ fontSize: '1.1rem' }}>{t.ticket_id}</div>
+            </div>
+            <div className="badge flex items-center gap-4 py-4 px-8 rounded-full" style={{
+              background: t.status === 'Resolved' || t.status === 'Solved' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+              color: t.status === 'Resolved' || t.status === 'Solved' ? '#10B981' : '#EF4444'
+            }}>
+              {t.status === 'Resolved' || t.status === 'Solved' ? <CheckCircle size={14}/> : <AlertCircle size={14}/>}
+              {t.status}
+            </div>
+          </div>
+          
+          <div>
+            <div className="font-bold text-lg mb-4">{t.category}</div>
+            <div className="text-sm opacity-80" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+              {t.description}
+            </div>
+          </div>
+          
+          <div className="flex justify-between items-center mt-8 text-xs opacity-60">
+            <span>Submitted: {new Date(t.submitted_at).toLocaleDateString()}</span>
+            {t.updated_at && <span>Last updated: {new Date(t.updated_at).toLocaleDateString()}</span>}
+          </div>
+        </div>
+      ))}
+    </motion.div>
   )
 }
 

@@ -78,56 +78,57 @@ CREATE INDEX IF NOT EXISTS idx_tickets_status_ward
 
 
 async def init_database():
-    print("🏗  CitySync — Database Initialisation")
+    print("CitySync - Database Initialisation")
     print(f"   Connecting to: {settings.database_url_sync.split('@')[1]}")
 
     engine = create_async_engine(settings.database_url, echo=False)
 
     async with engine.begin() as conn:
         # 1. Enable PostGIS extension
-        print("📦 Enabling PostGIS extension...")
+        print("Enabling PostGIS extension...")
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology;"))
-        print("   ✓ PostGIS enabled")
+        print("   PostGIS enabled")
 
         # 2. Create all ORM tables
-        print("📋 Creating tables...")
+        print("Creating tables...")
         await conn.run_sync(Base.metadata.create_all)
-        print("   ✓ All 9 tables created")
+        print("   All tables created")
 
         # 2.5 Add new columns if they are missing
-        print("🔧 Running structural migrations (if any)...")
+        print("Running structural migrations (if any)...")
         try:
             await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(100);"))
             await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS officer_notes TEXT;"))
+            await conn.execute(text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS status_history JSONB DEFAULT '[]'::jsonb;"))
             
             # Migration for 'Solved' status check constraint
-            print("   🔧 Updating status check constraint...")
+            print("   Updating status check constraint...")
             await conn.execute(text("ALTER TABLE tickets DROP CONSTRAINT IF EXISTS ck_tickets_status;"))
             await conn.execute(text("""
                 ALTER TABLE tickets ADD CONSTRAINT ck_tickets_status 
-                CHECK (status IN ('Pending','Processing','In Progress','Solved','Work Complete','Resolved','Rejected','Human Review'));
+                CHECK (status IN ('Submitted','Pending','Processing','In Progress','Under Review','Solved','Work Complete','Resolved','Completed','Rejected','Human Review'));
             """))
-            print("   ✓ Columns and constraints updated")
+            print("   Columns and constraints updated")
         except Exception as e:
-            print(f"   ! Columns update: {e}")
+            print(f"   Columns update error: {e}")
 
         # 3. Create spatial indexes
-        print("🗺  Creating spatial indexes...")
+        print("Creating spatial indexes...")
         for stmt in SPATIAL_INDEXES_SQL.strip().split(";"):
             stmt = stmt.strip()
             if stmt:
                 await conn.execute(text(stmt + ";"))
-        print("   ✓ Spatial indexes created")
+        print("   Spatial indexes created")
 
         # 4. Install the resolution trigger
-        print("🔒 Installing verification trigger...")
+        print("Installing verification trigger...")
         await conn.execute(text(TRIGGER_FUNCTION_SQL))
         await conn.execute(text(TRIGGER_DROP_SQL))
         await conn.execute(text(TRIGGER_CREATE_SQL))
-        print("   ✓ trg_enforce_resolution installed")
+        print("   trg_enforce_resolution installed")
         print()
-        print("✅ Database initialisation complete!")
+        print("Database initialisation complete!")
         print()
         print("Next step: python backend/migrations/seed_data.py")
 

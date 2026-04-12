@@ -14,7 +14,7 @@ from typing import Optional
 from contextlib import asynccontextmanager
 
 import socketio
-from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -42,10 +42,12 @@ from shared.schemas import (
     UserLogin,
     UserUpdate,
     UserOut,
-    Token
+    Token,
+    LegacyTicketRequest,
+    PatchStatusRequest
 )
 from shared.database import get_db
-from shared.models import Ticket, User
+from shared.models import Ticket, User, NotificationLog
 from gateway.rate_limiter import check_rate_limit
 from sqlalchemy import select, and_, func
 from geoalchemy2 import Geography
@@ -292,7 +294,8 @@ async def submit_complaint(
         # 4a. Spatial + Trigram similarity check
         # Looks for tickets within 50m of the current location
         stmt = select(Ticket).where(
-            func.similarity(Ticket.description, payload.description) > 0.3
+            func.similarity(Ticket.description, payload.description) > 0.3,
+            Ticket.status.notin_(["Resolved", "Solved", "Rejected"])
         )
         
         if lat and lng:
@@ -366,6 +369,17 @@ async def submit_complaint(
     await publish_event(Streams.RAW_SUBMISSIONS, event_data)
     log.info("event_published", stream=Streams.RAW_SUBMISSIONS, ticket_id=ticket_id)
 
+    # Immediately push a STATUS_UPDATE so they get standard SMS
+    await publish_event(
+        Streams.STATUS_UPDATES,
+        {
+            "ticket_id": ticket_id,
+            "citizen_token": citizen_token,
+            "status": "Pending",
+            "message": "Complaint received. Our AI is classifying and routing it now.",
+        },
+    )
+
     # ΓöÇΓöÇ 8. Track metrics ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     r = await get_redis()
     await r.incr("citysync:metrics:request_count")
@@ -377,11 +391,52 @@ async def submit_complaint(
 
     return SubmitComplaintResponse(
         ticket_id=ticket_id,
-        status="Processing",
+        status="Pending",
         message="Complaint received. Our AI is classifying and routing it now.",
         bearer_token=bearer_token,
         estimated_processing_ms=400,
     )
+
+
+
+@app.get("/api/tickets/history")
+async def get_my_tickets(user: dict = Depends(get_current_user)):
+    """Fetch ticket history for the logged-in citizen."""
+    if user.get("role") not in ("citizen", "admin"):
+        raise HTTPException(status_code=403, detail="Only citizens can view their history")
+    
+    from sqlalchemy import select
+    from shared.database import get_db
+    from shared.models import Ticket
+    from shared.privacy import hmac_tokenize
+
+    my_token = hmac_tokenize(user["sub"])
+    async with get_db() as session:
+        result = await session.execute(
+            select(Ticket)
+            .where(Ticket.citizen_token == my_token)
+            .order_by(Ticket.submitted_at.desc())
+        )
+        tickets = result.scalars().all()
+        coord_map = await _fuzzed_lat_lng_for_ids(session, [t.id for t in tickets])
+
+    history = []
+    for t in tickets:
+        lat_lng = coord_map.get(t.id)
+        td = {
+            "ticket_id": t.id,
+            "category": t.category,
+            "severity_tier": t.severity_tier,
+            "status": t.status,
+            "description": t.description,
+            "submitted_at": t.submitted_at.isoformat() if t.submitted_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+        }
+        if lat_lng:
+            td["raw_lat"], td["raw_lng"] = lat_lng[0], lat_lng[1]
+        history.append(td)
+        
+    return {"tickets": history}
 
 
 @app.get("/api/tickets/{ticket_id}")
@@ -426,11 +481,12 @@ async def get_ticket(
     return filter_ticket_fields(ticket_dict, role)
 
 
-@app.get("/api/tickets")
+@app.get("/api/tickets", response_model=TicketListResponse)
 async def list_tickets(
-    ward_id: Optional[str] = None,
-    status: Optional[str] = None,
-    category: Optional[str] = None,
+    request: Request,
+    ward_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
     page: int = 1,
     page_size: int = 20,
     user: dict = Depends(get_current_user),
@@ -458,6 +514,19 @@ async def list_tickets(
                 query = query.where(Ticket.status == status.strip())
         if category:
             query = query.where(Ticket.category == category)
+            
+        # Specific requirement: Filter by phone number
+        phone = request.query_params.get("phone")
+        if phone:
+            # Find user by phone to get their token
+            user_res = await session.execute(select(User).where(User.phone == phone))
+            matched_user = user_res.scalars().first()
+            if matched_user:
+                token = hmac_tokenize(matched_user.id)
+                query = query.where(Ticket.citizen_token == token)
+            else:
+                return {"tickets": [], "total": 0, "page": page, "page_size": page_size}
+
         dept_cats = department_categories_filter(user)
         if dept_cats is not None:
             query = query.where(Ticket.category.in_(dept_cats))
@@ -682,6 +751,125 @@ async def resolve_ticket(
     await emit_ticket_update(ticket_id, ward_id, filtered)
 
     return {"ok": True, "ticket": filtered}
+
+# ── Specified Overhaul Endpoints ──────────────────────────────────────────────
+
+@app.post("/api/tickets", response_model=SubmitComplaintResponse, status_code=202)
+async def create_ticket_legacy(
+    payload: LegacyTicketRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Spec-compliant ticket creation with track history initialization."""
+    ticket_id = generate_ticket_id()
+    
+    # Map legacy fields to existing models
+    # Note: user_phone and user_name from payload are used to build history, 
+    # but actual citizen_token comes from the authenticated user for privacy continuity.
+    citizen_token = hmac_tokenize(user["sub"])
+    
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    history = [{
+        "status": "Submitted",
+        "timestamp": timestamp,
+        "updated_by": payload.user_name,
+        "note": "Initial ticket submission"
+    }]
+
+    async with get_db() as session:
+        ticket = Ticket(
+            id=ticket_id,
+            category=payload.title,
+            description=payload.description,
+            status="Submitted",
+            severity=5, # Default
+            severity_tier="Medium", # Default
+            citizen_token=citizen_token,
+            status_history=history
+        )
+        session.add(ticket)
+        await session.commit()
+    
+    # Trigger notification worker
+    await publish_event(Streams.STATUS_UPDATES, {
+        "ticket_id": ticket_id,
+        "status": "Submitted",
+        "citizen_token": citizen_token,
+        "message": f"Confirmation: Ticket #{ticket_id} has been submitted."
+    })
+
+    # Trigger AI Pipeline for ward resolution, priority, and coordinates
+    await publish_event(Streams.RAW_SUBMISSIONS, {
+        "ticket_id": ticket_id,
+        "description": payload.description,
+        "language": "en",
+        "citizen_token": citizen_token,
+        "raw_lat": str(payload.latitude) if payload.latitude is not None else "",
+        "raw_lng": str(payload.longitude) if payload.longitude is not None else "",
+        "trace_id": str(uuid.uuid4())
+    })
+
+    return SubmitComplaintResponse(
+        ticket_id=ticket_id,
+        status="Submitted",
+        message="Confirmation SMS/WhatsApp sent.",
+        bearer_token=create_token(citizen_token, role="citizen")
+    )
+
+@app.patch("/api/tickets/{ticket_id}/status")
+async def patch_ticket_status(
+    ticket_id: str,
+    payload: PatchStatusRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Spec-compliant ticket status update with history appending and notification."""
+    _require_officer(user)
+    
+    # Priority order for forward-moving validation
+    STATUS_ORDER = ["Submitted", "Pending", "Processing", "In Progress", "Under Review", "Solved", "Work Complete", "Resolved", "Completed"]
+    
+    async with get_db() as session:
+        ticket = await session.get(Ticket, ticket_id)
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        # Validate status exists in our order list
+        if payload.new_status not in STATUS_ORDER:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {payload.new_status}")
+
+        # Validate forward movement (optional but requested)
+        try:
+            old_idx = STATUS_ORDER.index(ticket.status)
+            new_idx = STATUS_ORDER.index(payload.new_status)
+            if new_idx < old_idx:
+                raise HTTPException(status_code=400, detail=f"Cannot transition backwards from {ticket.status} to {payload.new_status}")
+        except ValueError:
+            pass # Use default handling if current status is weird (e.g. Rejected)
+
+        # Trigger notification worker (which handles history appending to DB)
+        await publish_event(Streams.STATUS_UPDATES, {
+            "ticket_id": ticket_id,
+            "status": payload.new_status,
+            "updated_by": payload.updated_by,
+            "note": payload.note or f"Updated status to {payload.new_status}",
+            "citizen_token": ticket.citizen_token
+        })
+        
+        return {"status": "update_triggered", "ticket_id": ticket_id, "target_status": payload.new_status}
+
+@app.get("/api/tickets/{ticket_id}/notifications")
+async def get_ticket_notifications(
+    ticket_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """List all notification logs (Twilio metadata) for a specific ticket."""
+    _require_officer(user)
+    async with get_db() as session:
+        res = await session.execute(
+            select(NotificationLog)
+            .where(NotificationLog.ticket_id == ticket_id)
+            .order_by(NotificationLog.created_at.desc())
+        )
+        return {"logs": res.scalars().all()}
 
 @app.post("/api/upvote")
 async def upvote_ticket(

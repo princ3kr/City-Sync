@@ -162,7 +162,7 @@ services:
     networks:
       - citysync
 
-  # Notifications: Logs status updates (mock SMS/Email)
+  # Notifications: SMS/Email dispatcher
   notifications:
     build:
       context: .
@@ -170,9 +170,12 @@ services:
     container_name: citysync_notifications
     command: python -m notifications.main
     environment:
+      - DATABASE_URL=postgresql+asyncpg://citysync:citysync_secret@postgres:5432/citysync
       - REDIS_URL=redis://redis:6379/0
     env_file: .env
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:

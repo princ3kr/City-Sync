@@ -4,15 +4,17 @@ import { Check, Clock, Truck, ShieldCheck, HelpCircle } from 'lucide-react'
 import { getTicket } from '../utils/api'
 
 const STATUS_CONFIG = {
-  'Pending': { icon: <Clock size={16}/>, color: 'var(--text-muted)', label: 'Received' },
-  'Classified': { icon: <ShieldCheck size={16}/>, color: 'var(--accent-blue)', label: 'AI Classified' },
-  'Routed': { icon: <Truck size={16}/>, color: 'var(--accent-cyan)', label: 'In Transit' },
-  'In Progress': { icon: <Clock size={16}/>, color: 'var(--tier-high)', label: 'Working on it' },
-  'Resolved': { icon: <Check size={16}/>, color: 'var(--tier-low)', label: 'Solved!' },
+  'Submitted': { icon: <Clock size={16}/>, color: 'var(--text-muted)', label: 'Received' },
+  'Processing': { icon: <Clock size={16}/>, color: 'var(--accent-blue)', label: 'Analyzing' },
+  'Pending': { icon: <ShieldCheck size={16}/>, color: 'var(--accent-blue)', label: 'AI Classified' },
+  'In Progress': { icon: <Truck size={16}/>, color: 'var(--accent-cyan)', label: 'In Transit' },
+  'Work Complete': { icon: <Clock size={16}/>, color: 'var(--tier-high)', label: 'Working on it' },
+  'Solved': { icon: <Check size={16}/>, color: 'var(--tier-low)', label: 'Solved!' },
+  'Resolved': { icon: <Check size={16}/>, color: 'var(--tier-low)', label: 'Confirmed' },
   'Rejected': { icon: <HelpCircle size={16}/>, color: 'var(--tier-critical)', label: 'Needs Info' },
 }
 
-const STEPS = ['Pending', 'Classified', 'Routed', 'In Progress', 'Resolved']
+const STEPS = ['Submitted', 'Processing', 'Pending', 'In Progress', 'Solved', 'Resolved']
 
 export default function StatusTimeline({ ticketId, onStatusChange, isFresh = false }) {
   const [ticket, setTicket] = useState(null)
@@ -104,8 +106,8 @@ export default function StatusTimeline({ ticketId, onStatusChange, isFresh = fal
         />
 
         {STEPS.map((step, idx) => {
-          const isDone = idx < currentStatusIndex || ticket.status === 'Resolved'
-          const isActive = idx === currentStatusIndex && ticket.status !== 'Resolved'
+          const isDone = idx < currentStatusIndex || ['Solved', 'Resolved', 'Work Complete'].includes(ticket.status)
+          const isActive = idx === currentStatusIndex && !['Solved', 'Resolved', 'Work Complete'].includes(ticket.status)
           const config = STATUS_CONFIG[step] || { icon: <Check size={16}/>, color: 'var(--text-muted)', label: step }
 
           return (
@@ -148,9 +150,10 @@ export default function StatusTimeline({ ticketId, onStatusChange, isFresh = fal
           <div>
             <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 4 }}>Last Update</div>
             <p style={{ fontSize: '0.85rem', margin: 0 }}>
-              {ticket.status === 'Pending' ? 'AI is currently analyzing your report. This usually takes less than 1 second.' : 
-               ticket.status === 'Classified' ? `Recognized as ${ticket.category}. Forwarding to the municipal team.` :
-               ticket.status === 'Routed' ? 'On its way! The department has been notified.' :
+              {ticket.status === 'Submitted' ? 'We have received your report and are queuing it for AI analysis.' :
+               ticket.status === 'Processing' ? 'Our AI is currently de-duplicating and classifying your report. This usually takes < 1s.' : 
+               ticket.status === 'Pending' ? `Recognized as ${ticket.category}. Forwarding to the municipal team.` :
+               ticket.status === 'In Progress' ? 'On its way! The team has been dispatched to the location.' :
                'Local team is resolving the issue. We\'ll notify you once it\'s done!'}
             </p>
           </div>

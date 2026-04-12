@@ -164,33 +164,61 @@ function ProfileModal({ user, isOpen, onClose, onUpdate, onAddToast }) {
 function Nav({ user, onLogout, onOpenProfile }) {
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!isMenuOpen) return
+    const closeMenu = () => setIsMenuOpen(false)
+    document.addEventListener('click', closeMenu)
+    return () => document.removeEventListener('click', closeMenu)
+  }, [isMenuOpen])
 
   return (
     <nav className="nav">
       <div className="nav-inner">
         <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           {user ? (
-            <div className="relative group">
+            <div className="relative">
               <motion.button 
                 whileHover={{ scale: 1.05 }}
                 className="nav-logo-icon" 
-                onClick={onOpenProfile}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (onOpenProfile && user.role !== 'public') {
+                      setIsMenuOpen(!isMenuOpen)
+                  } else {
+                      setIsMenuOpen(!isMenuOpen)
+                  }
+                }}
                 style={{ cursor: 'pointer', background: 'var(--grad-accent)', border: 'none', borderRadius: 'var(--radius-md)' }}
               >
                 <User size={18} color="#fff" />
               </motion.button>
-              <div className="absolute top-12 left-0 hidden group-hover:block z-50 pt-3">
-                <div className="card card-sm flex-col gap-8 shadow-neon" style={{ minWidth: 200, padding: 16 }}>
-                  <div className="text-xs font-bold uppercase opacity-60">Account</div>
-                  <div className="text-sm font-bold truncate" style={{ color: 'var(--text-heading)' }}>{user.name}</div>
-                  <div className="text-xs text-muted">@{user.username}</div>
-                  <div className="badge badge-pending text-xs mt-4" style={{ alignSelf: 'flex-start' }}>{user.role}</div>
-                  <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '12px 0' }} />
-                  <button className="nav-link p-0 text-left flex items-center gap-8" style={{ color: 'var(--tier-critical)' }} onClick={onLogout}>
-                     <LogOut size={14} /> Sign Out
-                  </button>
-                </div>
-              </div>
+              
+              <AnimatePresence>
+                {isMenuOpen && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="absolute top-12 left-0 pt-3" 
+                    style={{ zIndex: 2005 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="card card-sm flex-col gap-8 shadow-neon" style={{ minWidth: 200, padding: 16 }}>
+                      <div className="text-xs font-bold uppercase opacity-60">Account</div>
+                      <div className="text-sm font-bold truncate" style={{ color: 'var(--text-heading)' }}>{user.name}</div>
+                      <div className="text-xs text-muted">@{user.username}</div>
+                      <div className="badge badge-pending text-xs mt-4" style={{ alignSelf: 'flex-start' }}>{user.role}</div>
+                      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '12px 0' }} />
+                      <button className="nav-link p-0 text-left flex items-center gap-8" style={{ color: 'var(--tier-critical)' }} onClick={() => { setIsMenuOpen(false); onLogout(); }}>
+                         <LogOut size={14} /> Sign Out
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           ) : (
             <motion.button 

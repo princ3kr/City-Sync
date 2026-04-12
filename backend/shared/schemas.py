@@ -30,6 +30,14 @@ class SubmitComplaintResponse(BaseModel):
     bearer_token: str
     estimated_processing_ms: int = 400
 
+class LegacyTicketRequest(BaseModel):
+    user_name: str
+    user_phone: str = Field(..., pattern=r"^\+?[\d\s-]{10,20}$")
+    title: str
+    description: str
+    latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
+
 
 # ΓöÇΓöÇ Ticket ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class TicketStatus(BaseModel):
@@ -44,6 +52,7 @@ class TicketStatus(BaseModel):
     submitted_at: datetime
     updated_at: datetime
     upvote_count: int
+    status_history: list[dict] = []
     # GPS coordinates depend on caller's role ΓÇö may be fuzzed or omitted
     location: Optional[dict] = None  # {"lat": ..., "lng": ..., "fuzz_level": "officer|public"}
     cluster_info: Optional[dict] = None  # {"cluster_id": ..., "member_count": ...}
@@ -60,6 +69,11 @@ class AssignTicketRequest(BaseModel):
     """Officer assigns a queued ticket to a field worker (dispatch)."""
 
     assignee_id: str = Field(..., min_length=4, max_length=80)
+
+class PatchStatusRequest(BaseModel):
+    new_status: str
+    updated_by: str
+    note: Optional[str] = None
 
 
 # ΓöÇΓöÇ Classification ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

@@ -260,7 +260,7 @@ a:hover { color: var(--accent-blue); }
 .nav {
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 2000;
   background: var(--bg-nav);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);

@@ -44,6 +44,7 @@ export const updateMe = (payload)          => api.put('/api/auth/me', payload).t
 // ── Complaint APIs ─────────────────────────────────────────────────────────────
 export const submitComplaint = (payload) => api.post('/api/submit', payload)
 export const getTicket       = (ticketId) => api.get(`/api/tickets/${ticketId}`)
+export const getHistory      = () => api.get('/api/tickets/history').then(r => r.data)
 export const listTickets     = (params)   => api.get('/api/tickets', { params })
 export const upvoteTicket    = (ticketId) => api.post(`/api/upvote?ticket_id=${ticketId}`)
 

@@ -90,11 +90,14 @@ class Ticket(Base):
     routed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Officer dispatch ΓÇö JWT `sub` of the assigned field worker (demo: field_worker_demo_001)
     assigned_worker_id: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
+    assigned_to: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    officer_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status_history: Mapped[list] = mapped_column(JSONB, server_default='[]', default=list, nullable=False)
 
     __table_args__ = (
         CheckConstraint("severity BETWEEN 1 AND 10", name="ck_tickets_severity"),
         CheckConstraint(
-            "status IN ('Pending','Processing','In Progress','Solved','Work Complete','Resolved','Rejected','Human Review')",
+            "status IN ('Submitted','Pending','Processing','In Progress','Under Review','Solved','Work Complete','Resolved','Completed','Rejected','Human Review')",
             name="ck_tickets_status",
         ),
     )
@@ -188,18 +191,31 @@ class SeverityOverride(Base):
 
 # ΓöÇΓöÇ Webhook Log ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class WebhookLog(Base):
-    __tablename__ = "webhook_log"
+    __tablename__ = "webhook_logs"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
-    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), nullable=False)
-    department_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    webhook_url: Mapped[str] = mapped_column(String(500))
-    attempt_number: Mapped[int] = mapped_column(Integer, default=1)
-    http_status: Mapped[Optional[int]] = mapped_column(Integer)
-    response_time_ms: Mapped[Optional[float]] = mapped_column(Float)
-    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    department_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("departments.id"))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"))
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    response_status: Mapped[Optional[int]] = mapped_column(Integer)
     error_message: Mapped[Optional[str]] = mapped_column(Text)
-    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ΓöÇΓöÇ Notification Logs ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+class NotificationLog(Base):
+    """Tracks success/failures for automatic Twilio SMS and WhatsApp broadcasts."""
+    __tablename__ = "notification_logs"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticket_id: Mapped[str] = mapped_column(String(20), ForeignKey("tickets.id"), index=True)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False) # 'whatsapp' or 'sms'
+    status_triggered: Mapped[str] = mapped_column(String(50), nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 # ΓöÇΓöÇ Verification Submissions ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

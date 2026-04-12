@@ -23,10 +23,10 @@ export default function OfficerMap() {
   const [mapReady, setMapReady] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState(null)
 
-  const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Pending,In Progress', page_size: 100 })
+  const { tickets, loading, addOrUpdateTicket } = useTickets({ status: 'Submitted,Processing,Pending,In Progress', page_size: 100 })
   const { connected, lastEvent } = useSocket('all')
 
-  const activeTickets = tickets.filter(t => t.status === 'Pending')
+  const activeTickets = tickets.filter(t => ['Submitted', 'Processing', 'Pending', 'In Progress'].includes(t.status))
   const ticketsWithLocation = activeTickets.filter(t => t.location?.lat && t.location?.lng)
 
   // ── Initialize Map ──────────────────────────────────────────────────────────
