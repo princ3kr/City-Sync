@@ -1,8 +1,7 @@
 services:
   # ── Frontend (Static Site - Always Free) ──────────────────────────────────
-  - type: static
+  - type: static_site
     name: citysync-frontend
-    env: static
     buildCommand: "cd frontend && npm install && npm run build"
     staticPublishPath: frontend/dist
     envVars:
