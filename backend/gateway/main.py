@@ -22,12 +22,14 @@ from shared.config import settings
 from shared.logging_config import configure_logging, get_logger, set_trace_id, set_ticket_id
 from shared.auth import (
     ROLE_HIERARCHY,
-    FIELD_WORKERS,
+    verify_password,
+    get_password_hash,
     create_token,
     department_categories_filter,
     field_worker_label,
     filter_ticket_fields,
     get_current_user,
+    FIELD_WORKERS,
 )
 from shared.privacy import hmac_tokenize, strip_exif
 from shared.redis_client import publish_event, get_redis, Streams, get_top_categories
@@ -36,11 +38,17 @@ from shared.schemas import (
     SubmitComplaintRequest,
     SubmitComplaintResponse,
     TicketListResponse,
+    UserCreate,
+    UserLogin,
+    UserUpdate,
+    UserOut,
+    Token
 )
 from shared.database import get_db
-from shared.models import Ticket
+from shared.models import Ticket, User
 from gateway.rate_limiter import check_rate_limit
 from sqlalchemy import select, and_, func
+from geoalchemy2 import Geography
 from ai_pipeline.classifier import classify_complaint
 
 configure_logging(settings.log_level)
@@ -79,12 +87,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ΓöÇΓöÇ Socket.io for real-time push ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 sio = socketio.AsyncServer(
     async_mode="asgi",
     cors_allowed_origins="*",
@@ -167,6 +175,74 @@ async def health():
     }
 
 
+# ── Authentication Endpoints ───────────────────────────────────────────────────
+
+@app.post("/api/auth/signup", response_model=UserOut)
+async def signup(payload: UserCreate):
+    async with get_db() as session:
+        res = await session.execute(select(User).where(User.username == payload.username))
+        if res.scalars().first():
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        # Validate that if user is officer/admin, they might need a dept_code
+        # For this demo, we allow any role selection
+        db_user = User(
+            name=payload.name,
+            phone=payload.phone or "",
+            username=payload.username,
+            password_hash=get_password_hash(payload.password),
+            role=payload.role or "citizen",
+            dept_code=payload.dept_code  # ROADS, SWD, FIRE, etc.
+        )
+        session.add(db_user)
+        await session.commit()
+        await session.refresh(db_user)
+        return db_user
+
+@app.post("/api/auth/login", response_model=Token)
+async def login(payload: UserLogin):
+    async with get_db() as session:
+        res = await session.execute(select(User).where(User.username == payload.username))
+        user = res.scalars().first()
+        if not user or not verify_password(payload.password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+        access_token = create_token(user.id, role=user.role, extra={"name": user.name, "dept_code": user.dept_code})
+        return {"access_token": access_token, "token_type": "bearer", "role": user.role}
+
+@app.get("/api/auth/me", response_model=UserOut)
+async def get_me(user_token: dict = Depends(get_current_user)):
+    if user_token["role"] == "public":
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    async with get_db() as session:
+        res = await session.execute(select(User).where(User.id == user_token["sub"]))
+        user = res.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+
+@app.put("/api/auth/me", response_model=UserOut)
+async def update_me(payload: UserUpdate, user_token: dict = Depends(get_current_user)):
+    if user_token["role"] == "public":
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    async with get_db() as session:
+        res = await session.execute(select(User).where(User.id == user_token["sub"]))
+        user = res.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        if payload.name:
+            user.name = payload.name
+        if payload.password:
+            user.password_hash = get_password_hash(payload.password)
+            
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+
 @app.post("/api/submit", response_model=SubmitComplaintResponse, status_code=202)
 async def submit_complaint(
     request: Request,
@@ -193,109 +269,85 @@ async def submit_complaint(
         await r.incr("citysync:metrics:rate_limit_hits")
         raise
 
-    # ΓöÇΓöÇ 2.5 Advanced Semantic Duplicate Check ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    # We call AI synchronously here to 'understand' the problem intent & location
-    # for a high-accuracy duplicate search before we publish a new ticket.
+    # ── 3. Coordinate Resolution (Moved up for deduplication) ──────────────────
+    extracted_gps = None
+    if payload.image_base64:
+        try:
+            image_bytes = base64.b64decode(payload.image_base64)
+            _, extracted_gps = strip_exif(image_bytes)
+        except Exception as e:
+            log.warning("extract_gps_failed", error=str(e))
+    
+    lat = payload.latitude or (extracted_gps["lat"] if extracted_gps else None)
+    lng = payload.longitude or (extracted_gps["lng"] if extracted_gps else None)
+
+    # ── 4. Advanced Semantic + Spatial Duplicate Check ──────────────────────────
     try:
         classification = await classify_complaint(trace_id[:20], payload.description, payload.language)
     except Exception as e:
         log.warning("duplicate_check_ai_failed", error=str(e))
         classification = None
 
-    bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": "duplicate"}) 
-
     async with get_db() as session:
-        # Match using Trigram Similarity (fuzzy matching) + AI Intent/Category
-        # Threshold 0.4 handles "Pothole at SV Rd" vs "Damaged road SV road"
+        # 4a. Spatial + Trigram similarity check
+        # Looks for tickets within 50m of the current location
         stmt = select(Ticket).where(
-            func.similarity(Ticket.description, payload.description) > 0.4
+            func.similarity(Ticket.description, payload.description) > 0.3
         )
         
-        # If AI extract succeeded, refine search by category
-        if classification:
+        if lat and lng:
             stmt = stmt.where(
-                (Ticket.category == classification.category)
+                func.ST_DWithin(
+                    Ticket.fuzzed_gps.cast(Geography),
+                    func.ST_SetSRID(func.ST_MakePoint(lng, lat), 4326).cast(Geography),
+                    50  # 50 meter radius
+                )
             )
 
-        # Order by most similar first
+        if classification:
+            stmt = stmt.where(Ticket.category == classification.category)
+
         stmt = stmt.order_by(func.similarity(Ticket.description, payload.description).desc()).limit(1)
-        
         res = await session.execute(stmt)
         existing = res.scalars().first()
 
         if existing:
-            is_own = (existing.citizen_token == citizen_token)
-
             # Resolved/Rejected = ignore/reject without change
-            if existing.status in ("Resolved", "Rejected"):
+            if existing.status in ("Resolved", "Solved", "Rejected"):
                 log.info("duplicate_ignored_closed", ticket_id=existing.id, status=existing.status)
                 return SubmitComplaintResponse(
                     ticket_id=existing.id,
                     status=existing.status,
-                    message="≡ƒöÆ This problem was previously resolved or rejected. ID: " + existing.id,
-                    bearer_token=bearer_token
+                    message=f"💡 This problem was recently {existing.status.lower()}. If it reappeared, please wait 24h before re-reporting. ID: {existing.id}",
+                    bearer_token=create_token(citizen_token, role="citizen", extra={"ticket_ref": existing.id})
                 )
 
             # Active = upvote + boost score
             existing.upvote_count += 1
             existing.priority_score = min(existing.priority_score + 2.0, 100.0)
             await session.commit()
-
-            if is_own:
-                msg = f"≡ƒôì Problem already exists in our system. ID: {existing.id}"
-                log.info("duplicate_own", ticket_id=existing.id)
-            else:
-                msg = f"≡ƒôê This problem was already reported. Priority score has been improved! ID: {existing.id}"
-                log.info("duplicate_other", ticket_id=existing.id)
             
+            msg = f"📈 Similar problem reported nearby! We've boosted the priority score. ID: {existing.id}"
             return SubmitComplaintResponse(
                 ticket_id=existing.id,
-                status="Processing", # Frontend expect processing for live view
+                status="Processing",
                 message=msg,
-                bearer_token=bearer_token
+                bearer_token=create_token(citizen_token, role="citizen", extra={"ticket_ref": existing.id})
             )
 
-    # ΓöÇΓöÇ 3. Assign ticket ID ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-
-    # ΓöÇΓöÇ 3. Assign ticket ID ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # ── 5. Assign ticket ID & Process Image ──────────────────────────────────────
     ticket_id = generate_ticket_id()
     set_ticket_id(ticket_id)
-    log.info("complaint_received", ticket_id=ticket_id, trace_id=trace_id)
-
-    # ΓöÇΓöÇ 4. Process image (strip EXIF, validate hash) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
     image_key = None
-    extracted_gps = None
-
     if payload.image_base64:
         try:
             image_bytes = base64.b64decode(payload.image_base64)
-
-            # Validate SHA-256 hash if provided
-            if payload.sha256_hash:
-                actual_hash = hashlib.sha256(image_bytes).hexdigest()
-                if actual_hash != payload.sha256_hash:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Image SHA-256 hash mismatch ΓÇö possible tampering",
-                    )
-
-            # Strip EXIF, extract GPS coordinates
-            clean_bytes, extracted_gps = strip_exif(image_bytes)
-
-            # Upload to MinIO
+            clean_bytes, _ = strip_exif(image_bytes)
             from shared.minio_client import upload_photo
             image_key = upload_photo(ticket_id, "before", clean_bytes)
-            log.info("image_uploaded", ticket_id=ticket_id, image_key=image_key)
-        except Exception as e:
-            log.warning("image_processing_failed", ticket_id=ticket_id, error=str(e))
-            # Don't fail submission ΓÇö process without image
+        except: pass
 
-    # ΓöÇΓöÇ 5. Determine GPS coordinates ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    # Priority: explicit payload GPS > EXIF GPS > None (geocoder will resolve from description)
-    lat = payload.latitude or (extracted_gps["lat"] if extracted_gps else None)
-    lng = payload.longitude or (extracted_gps["lng"] if extracted_gps else None)
-
-    # ΓöÇΓöÇ 6. Issue new bearer token for this citizen session ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+    # ── 6. Issue final bearer token ──────────────────────────────────────────────
     bearer_token = create_token(citizen_token, role="citizen", extra={"ticket_ref": ticket_id})
 
     # ΓöÇΓöÇ 7. Publish to Redis Stream raw.submissions ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
@@ -749,20 +801,33 @@ async def receive_webhook(dept_code: str, request: Request):
     return {"status": "accepted", "ticket_id": entry["ticket_id"]}
 
 @app.get("/api/stats/webhooks")
-async def get_webhooks():
-    """Fetch stored webhooks for native dashboard."""
+async def get_webhooks(user: dict = Depends(get_current_user)):
+    """Fetch stored webhooks for native dashboard. Officers only see their dept."""
     r = await get_redis()
     import json
     raw_logs = await r.lrange("citysync:webhooks", 0, -1)
     logs = [json.loads(x) for x in raw_logs]
     
+    # Isolation filter
+    is_officer = user.get("role") == "officer"
+    target_dept = user.get("dept_code")
+    
     tickets = []
+    filtered_logs = []
+    
     # Convert webhooks to pseudo-tickets for the UI
     for log_item in logs:
         p = log_item.get("payload", {})
+        item_dept = log_item.get("dept_code")
+        
+        # If officer, only show their dept's logs
+        if is_officer and target_dept and item_dept != target_dept:
+            continue
+            
+        filtered_logs.append(log_item)
         tickets.append({
             "ticket_id": p.get("ticket_id"),
-            "dept_code": log_item.get("dept_code"),
+            "dept_code": item_dept,
             "category": p.get("category", "Other"),
             "severity_tier": p.get("severity_tier", "Low"),
             "priority_score": float(p.get("priority_score") or 0),
@@ -770,9 +835,9 @@ async def get_webhooks():
             "status": "Accepted",
             "received_at": log_item.get("received_at")
         })
+        
     tickets.sort(key=lambda t: t["priority_score"], reverse=True)
-
-    return {"log": logs, "tickets": tickets}
+    return {"log": filtered_logs, "tickets": tickets}
 
 
 # ΓöÇΓöÇ Socket.io emit helpers (called by other services) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

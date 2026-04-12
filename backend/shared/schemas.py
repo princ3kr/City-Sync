@@ -1,9 +1,10 @@
-﻿"""
+"""
 CitySync ΓÇö Pydantic request/response schemas.
 """
 import re
 from datetime import datetime
-from typing import Optional
+from enum import Enum
+from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -160,3 +161,41 @@ class PipelineMetrics(BaseModel):
     retry_queue_depth: int
     step1_pass_rate: float
     timeout_rate: float
+
+
+# ── User Schemas ────────────────────────────────────────────────────────────────
+class UserRole(str, Enum):
+    CITIZEN = "citizen"
+    OFFICER = "officer"
+    ADMIN = "admin"
+
+class UserBase(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    phone: Optional[str] = Field(None, pattern=r"^\+?[\d\s-]{10,20}$")
+    username: str = Field(..., min_length=3, max_length=50)
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8)
+    role: Optional[UserRole] = UserRole.CITIZEN
+    dept_code: Optional[str] = None
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=2, max_length=100)
+    password: Optional[str] = Field(None, min_length=8)
+
+class UserOut(UserBase):
+    id: str
+    role: str
+    dept_code: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    role: str

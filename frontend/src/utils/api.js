@@ -9,15 +9,15 @@ const api = axios.create({
 
 // Inject bearer token from localStorage
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('citysync_token')
+  const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Auto-refresh token from response
+// Auto-refresh token from response (gateway issues fresh tokens on certain actions)
 api.interceptors.response.use((response) => {
   const newToken = response.data?.bearer_token
-  if (newToken) localStorage.setItem('citysync_token', newToken)
+  if (newToken) localStorage.setItem('token', newToken)
   return response
 })
 
@@ -30,10 +30,16 @@ export const verifyApi = axios.create({
 
 // Inject bearer token from localStorage for Verification API
 verifyApi.interceptors.request.use((config) => {
-  const token = localStorage.getItem('citysync_token')
+  const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
+
+// ── Auth APIs ────────────────────────────────────────────────────────────────
+export const login  = (username, password) => api.post('/api/auth/login', { username, password }).then(r => r.data)
+export const signup = (payload)            => api.post('/api/auth/signup', payload).then(r => r.data)
+export const getMe  = ()                   => api.get('/api/auth/me').then(r => r.data)
+export const updateMe = (payload)          => api.put('/api/auth/me', payload).then(r => r.data)
 
 // ── Complaint APIs ─────────────────────────────────────────────────────────────
 export const submitComplaint = (payload) => api.post('/api/submit', payload)
@@ -61,5 +67,3 @@ export const getVerifyMetrics = () =>
 export const getDemoTokens = () => api.get('/api/demo-tokens')
 
 export default api
-
-export const getMe = () => api.get('/api/me')

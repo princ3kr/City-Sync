@@ -33,7 +33,7 @@ async function getImageHash(base64) {
   return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
-export default function CitizenPortal({ onSubmitted }) {
+export default function CitizenPortal({ onSubmitted, onAddToast }) {
   const [wizardStep, setWizardStep] = useState(0) // 0: Category, 1: Media, 2: Details
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
@@ -101,15 +101,21 @@ export default function CitizenPortal({ onSubmitted }) {
         payload.sha256_hash = await getImageHash(b64)
       }
       const resp = await submitComplaint(payload)
-      if (resp.data.message && resp.data.message.toLowerCase().includes('already reported')) {
-        alert(`THE PROBLEM IS ALREADY REPORTED AND THE PRIORITY SCORE HAVE BEEN INCREASED with the ticket id of ${resp.data.ticket_id}`)
-      } else if (resp.data.message && resp.data.message.toLowerCase().includes('previously resolved')) {
-        alert(`This problem was previously resolved or rejected. Ticket ID: ${resp.data.ticket_id}`)
+      const { message, ticket_id, status } = resp.data
+
+      // Detect duplicates or closed tickets based on message/status
+      if (message && (message.includes('boosted') || message.includes('📈'))) {
+        onAddToast({ message: `📈 Similar issue found nearby! Boosted priority for TKT-${ticket_id}.`, type: 'info' })
+      } else if (status === 'Resolved' || status === 'Solved') {
+        onAddToast({ message: `💡 This was recently solved. If it's back, please wait 24h.`, type: 'info' })
+      } else {
+        onAddToast({ message: `✅ Reported! Ticket ID: ${ticket_id}`, type: 'success' })
       }
+
       setResult(resp.data)
       onSubmitted?.(resp.data)
     } catch (err) {
-      setError('Something went wrong. Please try again.')
+      setError(err.response?.data?.detail || 'Something went wrong. Please try again.')
     } finally {
       setSubmitting(false)
     }

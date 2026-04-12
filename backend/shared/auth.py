@@ -11,10 +11,19 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from shared.config import settings
+from passlib.context import CryptContext
 
 security = HTTPBearer(auto_error=False)
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
-# ΓöÇΓöÇ Role hierarchy ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+
+# ── Role hierarchy ──────────────────────────────────────────────────────────────
 ROLE_HIERARCHY = {
     "citizen": 0,
     "field_worker": 1,
@@ -24,7 +33,7 @@ ROLE_HIERARCHY = {
     "commissioner": 5,
 }
 
-# Category ΓåÆ municipal department code (must match seed_data.CATEGORY_DEPARTMENT_MAP)
+# Category → municipal department code (must match seed_data.CATEGORY_DEPARTMENT_MAP)
 CATEGORY_TO_DEPT = {
     "Pothole": "ROADS",
     "Flooding": "SWD",
@@ -49,21 +58,28 @@ def categories_for_department(dept_code: str) -> list[str]:
 
 def department_categories_filter(user: dict) -> list[str] | None:
     """
-    If the JWT carries dept_code (demo department login), return allowed categories.
-    None means no extra filter (city-wide officer / admin).
+    If the JWT carries dept_code, return allowed categories for that department.
+    None means no extra filter (global admin / citizen).
     """
     role = user.get("role", "public")
-    if role in ("admin", "commissioner"):
-        return None
     code = user.get("dept_code")
-    if not code or role != "officer":
+    
+    # If no department code is provided, global roles see everything
+    if not code:
         return None
+        
+    # Citizens can't be restricted by department (they report everything)
+    if role == "citizen":
+        return None
+        
+    # Officers and specific Department Admins are restricted
     cats = categories_for_department(code)
     return cats if cats else None
 
-# ΓöÇΓöÇ Token creation ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+
+# ── Token creation ──────────────────────────────────────────────────────────────
 def create_token(subject: str, role: str = "citizen", extra: dict | None = None) -> str:
-    """Create a JWT token for a citizen or officer."""
+    """Create a JWT token for a user."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": subject,
@@ -76,7 +92,7 @@ def create_token(subject: str, role: str = "citizen", extra: dict | None = None)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-# ΓöÇΓöÇ Token parsing ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Token parsing ──────────────────────────────────────────────────────────────
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT. Raises HTTPException on failure."""
     try:
@@ -93,38 +109,36 @@ def decode_token(token: str) -> dict:
         )
 
 
-# ΓöÇΓöÇ FastAPI dependencies ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── FastAPI dependencies ───────────────────────────────────────────────────────
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> dict:
     """
-    FastAPI dependency ΓÇö extracts caller identity.
-    Returns a dict with 'sub' (citizen token) and 'role'.
+    FastAPI dependency — extracts caller identity.
+    Returns a dict with 'sub' (user_id) and 'role'.
     Allows unauthenticated access but marks role as 'public'.
     """
     if not credentials:
         return {"sub": "anonymous", "role": "public"}
-    return decode_token(credentials.credentials)
+    
+    payload = decode_token(credentials.credentials)
+    
+    # Optional: We could fetch the full User object here and return it
+    # For now, we return the payload dict to maintain compatibility with decorators
+    return payload
 
 
 def require_role(minimum_role: str):
     """
-    Decorator factory ΓÇö enforces minimum role on a FastAPI route.
-
-    Usage:
-        @router.get("/admin/stats")
-        @require_role("admin")
-        async def get_stats(user: dict = Depends(get_current_user)):
-            ...
+    Decorator factory — enforces minimum role on a FastAPI route.
     """
     min_level = ROLE_HIERARCHY.get(minimum_role, 99)
 
     def decorator(func):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            # Extract 'user' from kwargs (set by Depends(get_current_user))
             user = kwargs.get("user") or kwargs.get("current_user")
-            if not user:
+            if not user or user.get("role") == "public":
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Authentication required",
@@ -134,27 +148,19 @@ def require_role(minimum_role: str):
             if caller_level < min_level:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Role '{minimum_role}' or higher required (you are '{caller_role}')",
+                    detail=f"Role '{minimum_role}' or higher required",
                 )
             return await func(*args, **kwargs)
         return wrapper
     return decorator
 
 
-# ΓöÇΓöÇ Field-level response filtering ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Field-level response filtering ──────────────────────────────────────────────
 def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
-    """
-    Remove or fuzz fields based on caller role.
-    Officers see less fuzz than public; admins see slightly less.
-    """
     from shared.privacy import fuzz_for_role
-
     filtered = dict(ticket_dict)
-
-    # Remove PII regardless of role ΓÇö citizen_token is never exposed
     filtered.pop("citizen_token", None)
 
-    # Handle GPS based on role
     raw_lat = filtered.pop("raw_lat", None)
     raw_lng = filtered.pop("raw_lng", None)
 
@@ -166,7 +172,6 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
             "fuzz_level": role,
         }
 
-    # Public cannot see description (privacy ΓÇö could reveal exact address)
     if role == "public":
         filtered.pop("description", None)
         filtered.pop("image_key", None)
@@ -176,16 +181,18 @@ def filter_ticket_fields(ticket_dict: dict, role: str) -> dict:
     return filtered
 
 
-# ΓöÇΓöÇ Demo tokens (hackathon only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Demo Infrastructure (Cleanup Pending) ──────────────────────────────────────
+# Note: Production should use the /api/auth/signup/login endpoints.
+# These remain to support existing demo frontend logic during migration.
 DEMO_TOKENS = {
-    "officer": create_token("officer_demo_001", role="officer"),
-    "admin": create_token("admin_demo_001", role="admin"),
-    "commissioner": create_token("commissioner_demo_001", role="commissioner"),
-    "field_worker": create_token("field_worker_demo_001", role="field_worker"),
-    "field_worker_2": create_token("field_worker_demo_002", role="field_worker"),
-    # Department-scoped officers (same role="officer", JWT carries dept_code)
+    "officer": create_token(
+        "officer_demo_001", role="officer", extra={"name": "Officer Smith", "dept_code": "GENERAL"}
+    ),
+    "admin": create_token(
+        "admin_demo_001", role="admin", extra={"name": "Admin Root"}
+    ),
     "dept_swd": create_token(
-        "dept_officer_swd_demo", role="officer", extra={"dept_code": "SWD", "dept_name": "Storm Water Drains"}
+        "dept_officer_swd_demo", role="officer", extra={"dept_code": "SWD", "dept_name": "Stormwater Dept"}
     ),
     "dept_roads": create_token(
         "dept_officer_roads_demo", role="officer", extra={"dept_code": "ROADS", "dept_name": "Roads & Infrastructure"}
