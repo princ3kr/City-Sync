@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     minio_access_key: str = Field("citysync_minio")
     minio_secret_key: str = Field("citysync_minio_secret")
     minio_bucket: str = Field("citysync")
-    minio_secure: bool = Field(False)
+    minio_secure: bool = Field(True)  # True for production (HTTPS)
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
     openai_api_key: str = Field("sk-mock")
@@ -46,12 +46,12 @@ class Settings(BaseSettings):
     twilio_from_number: str = Field("")
     twilio_phone_number: str = Field("")
     twilio_whatsapp_number: str = Field("whatsapp:+14155238886")
-    mock_notifications: bool = Field(True)
+    mock_notifications: bool = Field(True)  # Default to True to disable Twilio unless configured
 
     # ── SendGrid ──────────────────────────────────────────────────────────────
     sendgrid_api_key: str = Field("")
     sendgrid_from_email: str = Field("alerts@citysync.in")
-    mock_email: bool = Field(True)
+    mock_email: bool = Field(True)  # Default to True to disable SendGrid unless configured
 
     # ── Privacy / Security ────────────────────────────────────────────────────
     hmac_secret_key: str = Field("citysync-default-hmac-secret-change-in-prod")
@@ -63,9 +63,9 @@ class Settings(BaseSettings):
     webhook_hmac_secret: str = Field("citysync-webhook-signing-secret")
 
     # ── App ───────────────────────────────────────────────────────────────────
-    app_env: str = Field("development")
+    app_env: str = Field("production")
     log_level: str = Field("INFO")
-    cors_origins: str = Field("http://localhost:5173,http://localhost:3000")
+    cors_origins: str = Field("*")  # Relaxed for initial deploy, should be tightened to actual domain
 
     # ── Ports ─────────────────────────────────────────────────────────────────
     gateway_port: int = Field(8000)

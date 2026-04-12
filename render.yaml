@@ -1,0 +1,56 @@
+services:
+  # ── Frontend (Static Site - Always Free) ──────────────────────────────────
+  - type: static
+    name: citysync-frontend
+    env: static
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: citysync-gateway
+          type: web
+          property: host
+      - key: VITE_MAPBOX_TOKEN
+        sync: false # Set this in Render Dashboard
+
+  # ── Gateway (Web Service - Free Tier) ──────────────────────────────────────
+  - type: web
+    name: citysync-gateway
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python -m gateway.main"
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Connect to Supabase or Render Postgres
+      - key: REDIS_URL
+        sync: false # Connect to Upstash
+      - key: HMAC_SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+  # ── AI Pipeline (Internal Web Service - Free Tier) ─────────────────────────
+  - type: web
+    name: citysync-ai-worker
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python -m ai_pipeline.main"
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: MOCK_AI
+        value: "False"
+
+# Optionally add a database if not using Supabase
+# databases:
+#   - name: citysync-db
+#     plan: free
