@@ -75,6 +75,8 @@ This project is built with a microservices approach, utilizing Docker for contai
    - Citizen receives notification to confirm.
 7. **Closure**: Once confirmed, the ticket is marked resolved with an audit trail.
 
+![Workflow Diagram](images/workflow.svg)
+
 ### Data Flow
 - **Layer 1 (Citizen Interface)**: Input collection.
 - **Layer 2 (Event Streaming)**: Redis Streams for queuing.
@@ -84,6 +86,8 @@ This project is built with a microservices approach, utilizing Docker for contai
 - **Layer 5 (Persistence)**: Storage in PostgreSQL, MinIO, Redis.
 - **Layer 5.5 (Verification Engine)**: AI vision checks.
 - **Layer 6 (Presentation)**: Frontend dashboards.
+
+![Architecture Diagram](images/architecture.svg)
 
 ### Technologies Used
 - **Backend**: Python (FastAPI), Node.js (Express)
@@ -102,7 +106,7 @@ This project is built with a microservices approach, utilizing Docker for contai
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/princ3kr/City-Sync.git
    cd smart-problem-classification
    ```
 
@@ -136,12 +140,17 @@ This project is built with a microservices approach, utilizing Docker for contai
 - For production, set `MOCK_AI=false` and provide `OPENAI_API_KEY`.
 
 ## Database Schema
-- `tickets`: Core ticket data with triggers.
-- `ticket_clusters`: Deduplication clusters.
-- `department_routes`: Routing rules.
-- `severity_overrides`: Emergency overrides.
-- `verification_submissions`: Verification records.
-- `resolution_log`: Audit trail.
+
+| Table | Purpose |
+|-------|---------|
+| `tickets` | Core ticket data with triggers. |
+| `ticket_clusters` | Deduplication clusters. |
+| `department_routes` | Routing rules. |
+| `severity_overrides` | Emergency overrides. |
+| `verification_submissions` | Verification records. |
+| `resolution_log` | Audit trail. |
+| `webhook_log` | Every outbound webhook attempt. |
+| `model_calls` | AI model call log (replaces MLflow). |
 
 ## Contributing
 1. Fork the repository.
@@ -150,12 +159,12 @@ This project is built with a microservices approach, utilizing Docker for contai
 4. Submit a pull request.
 
 ## License
-[Specify License, e.g., MIT]
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contact
-[Contact Information]
-| `webhook_log` | Every outbound webhook attempt |
-| `model_calls` | AI model call log (replaces MLflow) |
+
+For issues, questions, or contributions, please visit the GitHub repository: [https://github.com/princ3kr/City-Sync](https://github.com/princ3kr/City-Sync)
 
 ## Privacy
 
