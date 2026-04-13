@@ -1,103 +1,159 @@
-## Quick Start (Any OS)
+# Smart Problem Classification System
 
-The fastest way to get started is using **Docker**. This sets up all databases, backend services, and the frontend in a single network.
+## Overview
 
-### 1. One-command startup (Recommended)
-```powershell
-# Copy the example environment file if you haven't already
-cp .env.example .env
+The Smart Problem Classification System is a comprehensive platform designed to streamline the reporting, classification, and resolution of civic issues in urban environments. It leverages artificial intelligence, geospatial analysis, and modern web technologies to automatically categorize, prioritize, and route problem reports from citizens to the appropriate municipal departments. The system ensures privacy, verification, and efficient workflow management through a multi-layered architecture.
 
-# Start everything
-docker-compose up --build
-```
+This project is built with a microservices approach, utilizing Docker for containerization, making it easy to deploy and scale. It includes a citizen-facing Progressive Web App (PWA), department portals, and backend APIs for processing and managing reports.
 
-Alternatively, use the PowerShell helper:
-```powershell
-.\start.ps1
-# Then press 'y' to use the Docker option
-```
+## Key Features
 
-### 2. Service URLs
-Once started, the platform is available at:
+### 1. **AI-Powered Classification**
+   - **Automatic Categorization**: Uses AI models (e.g., GPT-4o-mini) to classify incoming problem reports into predefined categories such as infrastructure, sanitation, utilities, etc.
+   - **Intent Detection**: Analyzes text descriptions to understand the nature of the issue.
+   - **Mock Mode**: Supports a mock mode for development without requiring API keys, using keyword-based matching.
 
-| Service | URL | Notes |
-|---------|-----|-------|
-| Citizen PWA | http://localhost:5173 | The main entry point for citizens |
-| Gateway API | http://localhost:8000/docs | Swagger docs for the main API |
-| Routing API | http://localhost:8001/docs | Tracking and webhook routing |
-| Verification API | http://localhost:8002/docs | Verification portal docs |
-| Department Portal | http://localhost:3000 | The officer/department dashboard |
-| MinIO Console | http://localhost:9001 | S3-compatible storage explorer |
+### 2. **Deduplication and Clustering**
+   - **Spatial Deduplication**: Groups similar reports within a 50-meter radius using PostGIS to prevent duplicate submissions.
+   - **Cluster Analysis**: Identifies hotspots and patterns in reported issues.
 
-### 3. Sharing with Teammates
-- **Environment**: Do **not** commit your `.env` file. A `.env.example` is provided for teammates to use.
-- **Docker**: The project is fully containerized. Teammates only need Docker installed to run the entire project.
-- **Ignore List**: `.gitignore` is pre-configured to keep the repo clean.
+### 3. **Priority Scoring**
+   - **Dynamic Scoring**: Calculates priority based on severity, cluster size, upvotes, time sensitivity, weather conditions, and user trust.
+   - **Formula**: `score = (severity × 2.5) + (cluster_size × 4) + (upvote_count × 2) + time_age_boost + weather_boost + trust_modifier`
+   - **Tiers**: Critical (≥85), High (60-84), Medium (35-59), Low (<35).
 
+### 4. **Geospatial Analysis**
+   - **Spatial Processing**: Integrates with PostGIS for location-based analysis and routing.
+   - **Map Integration**: Uses Mapbox GL JS for interactive maps in the frontend.
 
-## Service URLs
+### 5. **Privacy and Security**
+   - **User Privacy Protection**: Maintains the privacy of users who report problems by tokenizing citizen identities with HMAC-SHA256 (irreversible without key), applying Gaussian differential privacy noise to GPS coordinates (officers ε=2.0 ±30m, public ε=0.5 ±90m), and ensuring raw GPS is used only for deduplication checks without storing in the database.
+   - **Data Anonymization**: Photos are encrypted with AES-256 in MinIO, served via 10-minute pre-signed URLs with 90-day auto-delete TTL.
+   - **Secure Routing**: Uses HMAC webhooks for inter-service communication, with webhook payloads containing no PII and only fuzzed GPS data.
+   - **Differential Privacy**: Adds noise to protect user data while preserving analytical utility.
 
-| Service | URL | Notes |
-|---------|-----|-------|
-| Citizen PWA | http://localhost:5173 | React + Vite |
-| Gateway API | http://localhost:8000/docs | FastAPI + Socket.io |
-| Routing API | http://localhost:8001/docs | FastAPI |
-| Verification API | http://localhost:8002/docs | FastAPI |
-| Department Portal | http://localhost:3000 | Express + Live Dashboard |
-| MinIO Console | http://localhost:9001 | `citysync_minio` / `citysync_minio_secret` |
-| PostgreSQL | localhost:5432 | `citysync` / `citysync_secret` |
-| Redis | localhost:6379 | |
+### 6. **Two-Step Verification**
+   - **Resolution Process**: Requires field workers to upload after-photos and citizens to confirm resolution.
+   - **AI Verification**: Compares before/after images with ≥0.80 confidence using vision models.
+   - **Database Triggers**: PostgreSQL triggers enforce verification requirements.
 
-## Architecture — 7 Layers
+### 7. **Multi-Channel Input**
+   - **Citizen PWA**: Web app for submitting reports with GPS, photos, and text.
+   - **WhatsApp/SMS Integration**: Supports Twilio for messaging-based submissions.
+   - **API Endpoints**: RESTful APIs for programmatic access.
 
-```
-L1   Citizen Interface    → React PWA, WhatsApp/SMS (Twilio), GPS + Photo
-L2   Event Streaming      → Redis Streams (raw.submissions, classified.complaints, ...)
-L3   AI Processing        → gpt-4o-mini (mock) + PostGIS + Dedup Cluster + Priority Scorer
-L3.5 Routing              → FastAPI routing table + HMAC webhook + Celery retry
-L4   Privacy Vault        → HMAC-SHA256 tokenization + Gaussian DP noise (ε=2.0/0.5)
-L5   Persistence          → PostgreSQL 16+PostGIS + MinIO + Redis sorted sets
-L5.5 Verification Engine  → gpt-4o vision (mock) + PG trigger enforcement
-L6   Presentation         → React+Vite + Mapbox GL JS + Socket.io
-```
+### 8. **Real-Time Notifications and Routing**
+   - **Event Streaming**: Uses Redis Streams for real-time processing.
+   - **Webhook Routing**: Routes reports to departments based on category and location.
+   - **Notifications**: Sends updates via email, SMS, or in-app notifications.
 
-## Priority Formula
+### 9. **Department and Admin Portals**
+   - **Officer Dashboard**: Interactive map and ticket management for field workers.
+   - **Admin Dashboard**: Oversight and analytics for administrators.
+   - **Live Updates**: Socket.io for real-time status updates.
 
-```
-score = (severity × 2.5) + (cluster_size × 4) + (upvote_count × 2)
-      + time_age_boost + weather_boost + trust_modifier
+### 10. **Scalable Architecture**
+   - **Microservices**: Modular backend services (Gateway, Routing, Verification, AI Pipeline).
+   - **Containerization**: Docker Compose for easy deployment.
+   - **Databases**: PostgreSQL with PostGIS, Redis, MinIO for object storage.
 
-Tiers: Critical ≥85 | High 60-84 | Medium 35-59 | Low <35
-```
+## How It Works
 
-## Two-Step Verification
+### Workflow Overview
+1. **Submission**: Citizens submit problems via the PWA, WhatsApp, or API, including description, location, and photos.
+2. **Ingestion**: The Gateway API receives submissions and streams them to Redis.
+3. **AI Processing**:
+   - Classifier categorizes the issue.
+   - Deduplication checks for nearby similar reports.
+   - Priority scorer assigns a score.
+   - Spatial analysis determines routing.
+4. **Routing**: Based on category and ward, routes to the appropriate department via webhooks.
+5. **Assignment**: Department officers receive notifications and assign to field workers.
+6. **Resolution**:
+   - Field worker addresses the issue and uploads after-photo.
+   - AI verifies the resolution.
+   - Citizen receives notification to confirm.
+7. **Closure**: Once confirmed, the ticket is marked resolved with an audit trail.
 
-No officer or admin can mark a ticket Resolved without:
-1. **Step 1**: Field worker uploads after-photo → AI compares before/after (≥0.80 confidence)
-2. **Step 2**: Citizen confirms YES/NO within 72 hours
+### Data Flow
+- **Layer 1 (Citizen Interface)**: Input collection.
+- **Layer 2 (Event Streaming)**: Redis Streams for queuing.
+- **Layer 3 (AI Processing)**: Classification, dedup, priority, spatial.
+- **Layer 3.5 (Routing)**: FastAPI routing with Celery retries.
+- **Layer 4 (Privacy Vault)**: Data anonymization.
+- **Layer 5 (Persistence)**: Storage in PostgreSQL, MinIO, Redis.
+- **Layer 5.5 (Verification Engine)**: AI vision checks.
+- **Layer 6 (Presentation)**: Frontend dashboards.
 
-A PostgreSQL trigger **rejects** any `UPDATE tickets SET status='Resolved'` that doesn't include a valid `resolution_log_id` FK.
+### Technologies Used
+- **Backend**: Python (FastAPI), Node.js (Express)
+- **Frontend**: React, Vite, Mapbox GL JS
+- **Databases**: PostgreSQL, PostGIS, Redis, MinIO
+- **AI/ML**: OpenAI GPT-4o, Vision models
+- **Infrastructure**: Docker, Docker Compose
+- **Communication**: Socket.io, Twilio, Webhooks
 
-## Mock Mode
+## Quick Start
 
-Set `MOCK_AI=true` in `.env` (default) to run without API keys:
-- Classifier → keyword-based intent/category matching
-- Vision verifier → deterministic mock scores
-- Notifications → console-logged
-- Email → console-logged
+### Prerequisites
+- Docker and Docker Compose
+- Git
 
-Set `MOCK_AI=false` and add `OPENAI_API_KEY` for real AI classification.
+### Installation
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd smart-problem-classification
+   ```
+
+2. Copy environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Start with Docker:
+   ```bash
+   docker-compose up --build
+   ```
+
+   Or use the PowerShell script:
+   ```powershell
+   .\start.ps1
+   ```
+
+### Service URLs
+- Citizen PWA: http://localhost:5173
+- Gateway API Docs: http://localhost:8000/docs
+- Routing API Docs: http://localhost:8001/docs
+- Verification API Docs: http://localhost:8002/docs
+- Department Portal: http://localhost:3000
+- MinIO Console: http://localhost:9001 (user: citysync_minio, pass: citysync_minio_secret)
+- PostgreSQL: localhost:5432 (db: citysync, user: citysync, pass: citysync_secret)
+- Redis: localhost:6379
+
+## Configuration
+- Set `MOCK_AI=true` for development (default).
+- For production, set `MOCK_AI=false` and provide `OPENAI_API_KEY`.
 
 ## Database Schema
+- `tickets`: Core ticket data with triggers.
+- `ticket_clusters`: Deduplication clusters.
+- `department_routes`: Routing rules.
+- `severity_overrides`: Emergency overrides.
+- `verification_submissions`: Verification records.
+- `resolution_log`: Audit trail.
 
-| Table | Purpose |
-|-------|---------|
-| `tickets` | Core entity with PG trigger on Resolved write |
-| `ticket_clusters` | PostGIS cluster centroids for 50m dedup |
-| `department_routes` | Category+ward → department O(1) routing |
-| `severity_overrides` | Emergency bypass (Live Wire → Electricity Emergency) |
-| `verification_submissions` | Step 1 + Step 2 photo records |
-| `resolution_log` | Immutable resolution audit trail |
+## Contributing
+1. Fork the repository.
+2. Create a feature branch.
+3. Make changes and test.
+4. Submit a pull request.
+
+## License
+[Specify License, e.g., MIT]
+
+## Contact
+[Contact Information]
 | `webhook_log` | Every outbound webhook attempt |
 | `model_calls` | AI model call log (replaces MLflow) |
 
