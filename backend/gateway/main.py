@@ -459,10 +459,13 @@ async def get_ticket(
         coord_map = await _fuzzed_lat_lng_for_ids(session, [ticket_id])
     lat_lng = coord_map.get(ticket_id)
 
+    from shared.auth import CATEGORY_TO_DEPT
+
     role = user.get("role", "public")
     ticket_dict = {
         "ticket_id": ticket.id,
         "category": ticket.category,
+        "dept_code": CATEGORY_TO_DEPT.get(ticket.category),
         "severity": ticket.severity,
         "severity_tier": ticket.severity_tier,
         "priority_score": ticket.priority_score,
@@ -535,12 +538,15 @@ async def list_tickets(
         tickets = result.scalars().all()
         coord_map = await _fuzzed_lat_lng_for_ids(session, [t.id for t in tickets])
 
+    from shared.auth import CATEGORY_TO_DEPT
+
     role = user.get("role", "public")
     filtered = []
     for t in tickets:
         td = {
             "ticket_id": t.id,
             "category": t.category,
+            "dept_code": CATEGORY_TO_DEPT.get(t.category),
             "severity": t.severity,
             "severity_tier": t.severity_tier,
             "priority_score": t.priority_score,

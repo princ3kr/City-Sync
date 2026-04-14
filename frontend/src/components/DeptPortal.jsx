@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import api, { getMe } from '../utils/api'
+import api, { getMe, listTickets } from '../utils/api'
 
 export default function DeptPortal() {
   const [stats, setStats] = useState({ 
@@ -10,21 +10,38 @@ export default function DeptPortal() {
   const [me, setMe] = useState(null)
 
   useEffect(() => {
-    getMe().then((r) => setMe(r.data)).catch(() => setMe(null))
+    // getMe() already returns the JSON payload (not an axios Response)
+    getMe().then((data) => setMe(data)).catch(() => setMe(null))
   }, [])
 
   useEffect(() => {
     const fetchData = async () => {
         try {
-            // Note: Since gateway serves this now, the data format might be different
-            // Gateway responds with { log: [...], tickets: [...] }
+            // Primary: webhook-derived log (if departments are pushing webhooks)
             const res = await api.get('/api/stats/webhooks')
-            const data = res.data
-            setTickets(data.tickets || [])
+            const data = res.data || {}
+
+            // Fallback: if no webhook traffic, show real tickets so dashboard isn't "all zeros"
+            let ticketRows = data.tickets || []
+            if (!Array.isArray(ticketRows) || ticketRows.length === 0) {
+              const tRes = await listTickets({ page_size: 100 }).catch(() => ({ data: { tickets: [] } }))
+              ticketRows = (tRes.data?.tickets || []).map(t => ({
+                ticket_id: t.ticket_id,
+                dept_code: t.dept_code, // may be missing; UI will fallback
+                category: t.category,
+                severity_tier: t.severity_tier,
+                priority_score: t.priority_score,
+                ward_id: t.ward_id,
+                status: t.status,
+                received_at: t.submitted_at || t.updated_at || new Date().toISOString(),
+              }))
+            }
+
+            setTickets(ticketRows)
             setStats({
-                total: data.tickets?.length || 0,
+                total: ticketRows.length || 0,
                 webhooks_received: data.log?.length || 0,
-                valid_signatures: data.log?.filter(l => l.signature_valid).length || 0
+                valid_signatures: (data.log || []).filter(l => l.signature_valid).length || 0
             })
         } catch (e) {
             console.error("Failed to fetch webhooks:", e)
@@ -43,7 +60,7 @@ export default function DeptPortal() {
   const visibleTickets = useMemo(() => {
     let filtered = tickets.filter(t => !['Solved', 'Resolved', 'Rejected'].includes(t.status))
     if (!deptCode) return filtered
-    return filtered.filter((t) => (t.dept_code || '').toLowerCase() === deptCode)
+    return filtered.filter((t) => (t.dept_code || me?.dept_code || '').toLowerCase() === deptCode)
   }, [tickets, deptCode])
 
   return (
