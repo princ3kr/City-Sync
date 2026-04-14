@@ -44,10 +44,22 @@ def _connect_args(database_url: str) -> dict:
     return args
 
 
+def _as_asyncpg_url(database_url: str) -> str:
+    """
+    Ensure we use an async driver URL for SQLAlchemy asyncio.
+    Render/Supabase docs often show `postgresql://...` which would default to psycopg2.
+    """
+    if database_url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + database_url[len("postgresql://") :]
+    if database_url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + database_url[len("postgres://") :]
+    return database_url
+
+
 # Create async engine — pool_pre_ping keeps connections alive
 engine = create_async_engine(
-    settings.database_url,
-    connect_args=_connect_args(settings.database_url),
+    _as_asyncpg_url(settings.database_url),
+    connect_args=_connect_args(_as_asyncpg_url(settings.database_url)),
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
