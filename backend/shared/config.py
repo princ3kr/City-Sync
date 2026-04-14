@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO")
     cors_origins: str = Field("http://localhost:5173,http://localhost:3000")
 
+    # ── Bootstrapping ─────────────────────────────────────────────────────────
+    # On free platforms (Render), pre-deploy hooks might be unavailable.
+    # Enabling this runs init/seed in the background at startup, without blocking
+    # the HTTP port bind.
+    bootstrap_db_on_startup: bool = Field(False)
+
     # ── Ports ─────────────────────────────────────────────────────────────────
     # Render injects PORT; locally we use GATEWAY_PORT (or default 8000).
     gateway_port: int = Field(8000, validation_alias=AliasChoices("GATEWAY_PORT", "PORT"))

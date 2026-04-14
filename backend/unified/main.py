@@ -37,6 +37,23 @@ configure_logging(settings.log_level)
 log = get_logger("unified")
 
 
+async def _bootstrap_db() -> None:
+    """
+    Run init_db + seed_data without blocking the HTTP server startup.
+    Idempotent by design (CREATE IF NOT EXISTS / upserts).
+    """
+    try:
+        from migrations.init_db import init_database
+        from migrations.seed_data import seed
+
+        log.info("bootstrap_db_starting")
+        await init_database()
+        await seed()
+        log.info("bootstrap_db_complete")
+    except Exception as e:
+        log.exception("bootstrap_db_failed", error=str(e))
+
+
 def _spawn_with_restart(name: str, coro_fn):
     async def runner():
         backoff_s = 1
@@ -61,6 +78,9 @@ async def lifespan(app):
         gateway_service.app.mount("/verification", verification_service.app)
     if not any(getattr(r, "path", None) == "/routing" for r in gateway_service.app.routes):
         gateway_service.app.mount("/routing", routing_service.app)
+
+    if settings.bootstrap_db_on_startup:
+        asyncio.create_task(_bootstrap_db(), name="citysync:bootstrap_db")
 
     tasks = [
         _spawn_with_restart("ai_pipeline", ai_pipeline_service.main),
