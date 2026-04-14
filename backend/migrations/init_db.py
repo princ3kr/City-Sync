@@ -81,7 +81,7 @@ async def init_database():
     print("CitySync - Database Initialisation")
     print(f"   Connecting to: {settings.database_url_sync.split('@')[1]}")
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(settings.database_url, echo=False, connect_args={"ssl": "require"})
 
     async with engine.begin() as conn:
         # 1. Enable required Postgres extensions

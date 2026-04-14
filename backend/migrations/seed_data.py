@@ -124,7 +124,7 @@ SEVERITY_OVERRIDES = [
 async def seed():
     print("🌱 CitySync — Seeding Data")
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(settings.database_url, echo=False, connect_args={"ssl": "require"})
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with SessionLocal() as session:
