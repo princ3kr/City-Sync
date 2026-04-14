@@ -20,23 +20,34 @@ class Base(DeclarativeBase):
     pass
 
 
-# Supabase/managed Postgres generally requires TLS. asyncpg expects `ssl=` connect arg.
-def _ssl_connect_args(database_url: str) -> dict:
+def _connect_args(database_url: str) -> dict:
+    """
+    Connection args for managed Postgres.
+
+    - Enforce TLS for non-local DBs.
+    - Disable asyncpg statement cache for Supabase poolers (PgBouncer) to avoid
+      prepared-statement issues.
+    """
     try:
         u = make_url(database_url)
         host = (u.host or "").lower()
+        port = int(u.port or 0)
     except Exception:
         host = ""
+        port = 0
 
     if host in {"localhost", "127.0.0.1"} or host.endswith(".local"):
         return {}
-    return {"ssl": "require"}
+    args: dict = {"ssl": "require"}
+    if host.endswith("pooler.supabase.com") or port in {6543}:
+        args["statement_cache_size"] = 0
+    return args
 
 
 # Create async engine — pool_pre_ping keeps connections alive
 engine = create_async_engine(
     settings.database_url,
-    connect_args=_ssl_connect_args(settings.database_url),
+    connect_args=_connect_args(settings.database_url),
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
 
 from shared.config import settings
 from shared.database import Base
+from shared.database import _connect_args
 import shared.models as m
 
 
@@ -124,7 +125,7 @@ SEVERITY_OVERRIDES = [
 async def seed():
     print("🌱 CitySync — Seeding Data")
 
-    engine = create_async_engine(settings.database_url, echo=False, connect_args={"ssl": "require"})
+    engine = create_async_engine(settings.database_url, echo=False, connect_args=_connect_args(settings.database_url))
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with SessionLocal() as session:

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from shared.config import settings
 from shared.database import Base
+from shared.database import _connect_args
 import shared.models  # noqa — import all models so they register with Base
 
 
@@ -81,7 +82,7 @@ async def init_database():
     print("CitySync - Database Initialisation")
     print(f"   Connecting to: {settings.database_url_sync.split('@')[1]}")
 
-    engine = create_async_engine(settings.database_url, echo=False, connect_args={"ssl": "require"})
+    engine = create_async_engine(settings.database_url, echo=False, connect_args=_connect_args(settings.database_url))
 
     async with engine.begin() as conn:
         # 1. Enable required Postgres extensions
