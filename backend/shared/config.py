@@ -4,7 +4,7 @@ Loads all settings from environment variables / .env file.
 """
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, AliasChoices
 
 
 class Settings(BaseSettings):
@@ -72,7 +72,8 @@ class Settings(BaseSettings):
     cors_origins: str = Field("http://localhost:5173,http://localhost:3000")
 
     # ── Ports ─────────────────────────────────────────────────────────────────
-    gateway_port: int = Field(8000)
+    # Render injects PORT; locally we use GATEWAY_PORT (or default 8000).
+    gateway_port: int = Field(8000, validation_alias=AliasChoices("GATEWAY_PORT", "PORT"))
     routing_port: int = Field(8001)
     verification_port: int = Field(8002)
     dept_portal_port: int = Field(3000)

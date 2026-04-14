@@ -90,6 +90,6 @@ if __name__ == "__main__":
         "unified.main:asgi_app",
         host="0.0.0.0",
         port=settings.gateway_port,
-        reload=True,
+        reload=(settings.app_env != "production"),
     )
 
