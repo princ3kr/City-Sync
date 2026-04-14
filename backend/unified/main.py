@@ -14,8 +14,13 @@ Also exposes:
 This is intended for cheap/free demo hosting where multiple containers are not feasible.
 """
 
+import os
+import sys
 import asyncio
 from contextlib import asynccontextmanager
+
+# Ensure `backend/` is on sys.path when running from repo root (Render Python service)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from shared.config import settings
 from shared.logging_config import configure_logging, get_logger
@@ -87,7 +92,7 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(
-        "unified.main:asgi_app",
+        "backend.unified.main:asgi_app",
         host="0.0.0.0",
         port=settings.gateway_port,
         reload=(settings.app_env != "production"),
