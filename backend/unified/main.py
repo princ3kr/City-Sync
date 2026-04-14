@@ -25,12 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from shared.config import settings
 from shared.logging_config import configure_logging, get_logger
 
-# Import services (these modules initialize their FastAPI apps on import)
 import gateway.main as gateway_service
-import verification.main as verification_service
-import routing.main as routing_service
-import ai_pipeline.main as ai_pipeline_service
-import notifications.main as notifications_service
 
 
 configure_logging(settings.log_level)
@@ -72,6 +67,12 @@ def _spawn_with_restart(name: str, coro_fn):
 
 @asynccontextmanager
 async def lifespan(app):
+    # Lazy-import everything except gateway to reduce cold-start time on Render.
+    import verification.main as verification_service
+    import routing.main as routing_service
+    import ai_pipeline.main as ai_pipeline_service
+    import notifications.main as notifications_service
+
     # Mount extra APIs (avoid route collisions like /health by prefix-mounting)
     # These are safe to mount repeatedly (idempotent-ish) but we do it once at startup.
     if not any(getattr(r, "path", None) == "/verification" for r in gateway_service.app.routes):
