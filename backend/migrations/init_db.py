@@ -84,11 +84,12 @@ async def init_database():
     engine = create_async_engine(settings.database_url, echo=False)
 
     async with engine.begin() as conn:
-        # 1. Enable PostGIS extension
-        print("Enabling PostGIS extension...")
+        # 1. Enable required Postgres extensions
+        print("Enabling Postgres extensions...")
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology;"))
-        print("   PostGIS enabled")
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+        print("   Extensions enabled (postgis, postgis_topology, pg_trgm)")
 
         # 2. Create all ORM tables
         print("Creating tables...")
