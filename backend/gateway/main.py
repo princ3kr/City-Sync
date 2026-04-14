@@ -273,7 +273,7 @@ async def submit_complaint(
 
     # ── 3. Coordinate Resolution (Moved up for deduplication) ──────────────────
     extracted_gps = None
-    if payload.image_base64:
+    if payload.image_base64 and settings.enable_photos:
         try:
             image_bytes = base64.b64decode(payload.image_base64)
             _, extracted_gps = strip_exif(image_bytes)
@@ -342,7 +342,7 @@ async def submit_complaint(
     ticket_id = generate_ticket_id()
     set_ticket_id(ticket_id)
     image_key = None
-    if payload.image_base64:
+    if payload.image_base64 and settings.enable_photos:
         try:
             image_bytes = base64.b64decode(payload.image_base64)
             clean_bytes, _ = strip_exif(image_bytes)

@@ -55,6 +55,12 @@ async def step1_verify(
     set_ticket_id(ticket_id)
     log.info("step1_started", ticket_id=ticket_id)
 
+    if not settings.enable_photos:
+        raise HTTPException(
+            status_code=503,
+            detail="Photo verification is disabled in this deployment (ENABLE_PHOTOS=false).",
+        )
+
     # ── Fetch ticket ──────────────────────────────────────────────────────────
     async with get_db() as session:
         ticket = await session.get(Ticket, ticket_id)
@@ -174,6 +180,11 @@ async def step2_verify(
         confidence = 0.0
         reasoning = "Citizen explicitly rejected — issue persists"
     elif request.photo_base64:
+        if not settings.enable_photos:
+            raise HTTPException(
+                status_code=400,
+                detail="Photo verification is disabled in this deployment (ENABLE_PHOTOS=false). Use YES/NO.",
+            )
         # Score confirmation photo with AI
         photo_bytes = base64.b64decode(request.photo_base64)
         vision_result = await verify_citizen_photo(photo_bytes, ticket_id)
@@ -246,7 +257,7 @@ async def _resolve_ticket(ticket_id: str, citizen_token: str, ai_score: float, r
         "citizen_token": citizen_token,
         "status": "Resolved",
         "updated_by": "Citizen",
-        "note": f"Resolution confirmed via {resolution_method}."
+        "note": "Resolution confirmed via verified."
     })
 
     # ── Increment citizen trust score (future: +0.05) ─────────────────────────

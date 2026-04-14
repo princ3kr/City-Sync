@@ -1,0 +1,113 @@
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: citysync_postgres
+    environment:
+      POSTGRES_DB: citysync
+      POSTGRES_USER: citysync
+      POSTGRES_PASSWORD: citysync_secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - citysync
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U citysync -d citysync"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: citysync_redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - citysync
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ─── Database Setup (one-shot) ────────────────────────────────────────────
+  db-setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: citysync_db_setup
+    command: sh -c 'python backend/migrations/init_db.py && python backend/migrations/seed_data.py'
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://citysync:citysync_secret@postgres:5432/citysync
+      - DATABASE_URL_SYNC=postgresql://citysync:citysync_secret@postgres:5432/citysync
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - citysync
+
+  # ─── Unified Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: citysync_backend
+    command: python -m unified.main
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://citysync:citysync_secret@postgres:5432/citysync
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_PHOTOS=false
+      - DEPT_PORTAL_URL=http://dept-portal:3000/webhook
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db-setup:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - citysync
+
+  # ─── UI Services ───────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: citysync_frontend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      # verification & routing are mounted on the same backend in monolith mode
+      - VITE_VERIFY_URL=http://localhost:8000/verification
+      - VITE_ROUTING_URL=http://localhost:8000/routing
+    ports:
+      - "5173:5173"
+    networks:
+      - citysync
+
+  dept-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile.portal
+    container_name: citysync_dept_portal
+    environment:
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    networks:
+      - citysync
+
+networks:
+  citysync:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+

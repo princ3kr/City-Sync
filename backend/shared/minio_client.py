@@ -12,6 +12,8 @@ from shared.config import settings
 
 
 def _get_client() -> Minio:
+    if not settings.enable_photos:
+        raise RuntimeError("Photos are disabled (ENABLE_PHOTOS=false)")
     return Minio(
         settings.minio_endpoint,
         access_key=settings.minio_access_key,
@@ -22,6 +24,8 @@ def _get_client() -> Minio:
 
 def ensure_bucket():
     """Create the CitySync bucket if it doesn't exist."""
+    if not settings.enable_photos:
+        return
     client = _get_client()
     bucket = settings.minio_bucket
     try:
@@ -66,6 +70,8 @@ def upload_photo(ticket_id: str, photo_type: str, image_data: bytes, content_typ
     Returns:
         object_key: The MinIO object path (stored in tickets.image_key)
     """
+    if not settings.enable_photos:
+        raise RuntimeError("Photos are disabled (ENABLE_PHOTOS=false)")
     client = _get_client()
     object_key = f"complaints/{ticket_id}/{photo_type}.jpg"
 
@@ -84,6 +90,8 @@ def get_presigned_url(object_key: str, expiry_minutes: int = 10) -> str:
     Generate a pre-signed URL for an officer to view a photo.
     URL expires after `expiry_minutes` (default 10 min).
     """
+    if not settings.enable_photos:
+        raise RuntimeError("Photos are disabled (ENABLE_PHOTOS=false)")
     client = _get_client()
     try:
         url = client.presigned_get_object(
@@ -98,5 +106,7 @@ def get_presigned_url(object_key: str, expiry_minutes: int = 10) -> str:
 
 def delete_photo(object_key: str):
     """Permanently delete a photo (called after resolution + 90-day TTL)."""
+    if not settings.enable_photos:
+        return
     client = _get_client()
     client.remove_object(settings.minio_bucket, object_key)

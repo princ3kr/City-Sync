@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = Field("redis://localhost:6379/0")
 
+    # ── Media / Photos ────────────────────────────────────────────────────────
+    # Set ENABLE_PHOTOS=false for cheap/free demos (skips MinIO/R2 entirely).
+    enable_photos: bool = Field(True)
+
     # ── MinIO ─────────────────────────────────────────────────────────────────
     minio_endpoint: str = Field("localhost:9000")
     minio_access_key: str = Field("citysync_minio")

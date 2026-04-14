@@ -21,7 +21,8 @@ api.interceptors.response.use((response) => {
   return response
 })
 
-const VERIFY_URL = import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'
+// Monolith-friendly default: verification is mounted on the same backend
+const VERIFY_URL = import.meta.env.VITE_VERIFY_URL || `${BASE_URL}/verification`
 
 export const verifyApi = axios.create({
   baseURL: VERIFY_URL,
@@ -60,9 +61,9 @@ export const markTicketSolved      = (ticketId) => api.post(`/api/tickets/${tick
 export const getMetrics     = () => api.get('/api/stats/gateway')
 export const getLeaderboard = () => api.get('/api/frequency/leaderboard')
 export const getRoutingMetrics = () =>
-  axios.get(`${import.meta.env.VITE_ROUTING_URL || 'http://localhost:8001'}/api/stats/routing`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_ROUTING_URL || `${BASE_URL}/routing`}/api/routing/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
 export const getVerifyMetrics = () =>
-  axios.get(`${import.meta.env.VITE_VERIFY_URL || 'http://localhost:8002'}/api/stats/verify`, { timeout: 5000 }).catch(() => ({ data: {} }))
+  axios.get(`${import.meta.env.VITE_VERIFY_URL || `${BASE_URL}/verification`}/api/verify/metrics`, { timeout: 5000 }).catch(() => ({ data: {} }))
 
 // ── Demo ───────────────────────────────────────────────────────────────────────
 export const getDemoTokens = () => api.get('/api/demo-tokens')
