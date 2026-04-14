@@ -18,12 +18,17 @@ async def get_redis() -> Redis:
     """Get (or create) the global Redis connection pool."""
     global _redis_pool
     if _redis_pool is None:
-        _redis_pool = aioredis.from_url(
-            settings.redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=50,
-        )
+        url = settings.redis_url
+        kwargs = {
+            "encoding": "utf-8",
+            "decode_responses": True,
+            "max_connections": 50,
+        }
+        # Upstash uses rediss:// and requires ssl_cert_reqs to be explicitly set.
+        if url.startswith("rediss://"):
+            kwargs["ssl_cert_reqs"] = "required"
+
+        _redis_pool = aioredis.from_url(url, **kwargs)
     return _redis_pool
 
 
