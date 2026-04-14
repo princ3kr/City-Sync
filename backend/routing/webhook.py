@@ -197,7 +197,7 @@ async def _log_webhook_attempt(
 
 async def _send_email_fallback(ticket_id: str, department_id: str, payload: dict):
     """SendGrid email fallback after 4 webhook failures."""
-    if settings.mock_email:
+    if settings.mock_email or not settings.sendgrid_api_key:
         log.info(
             "mock_email_fallback",
             ticket_id=ticket_id,

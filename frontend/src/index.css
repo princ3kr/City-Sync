@@ -737,9 +737,6 @@ a:hover { color: var(--accent-blue); }
   flex-wrap: wrap;
 }
 
-/* ─── Mapbox ─────────────────────────────────────────────────────────────────── */
-.mapboxgl-ctrl-logo { display: none !important; }
-
 /* ─── Horizontal Timeline ────────────────────────────────────────────────────── */
 .status-timeline-container { padding: 10px 0; }
 .timeline-horizontal { margin: 20px 0; }

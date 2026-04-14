@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # ── Mapbox ────────────────────────────────────────────────────────────────
     mapbox_token: str = Field("")
-    mock_map: bool = Field(False)
+    mock_map: bool = Field(True)
 
     # ── Twilio ────────────────────────────────────────────────────────────────
     twilio_account_sid: str = Field("")
