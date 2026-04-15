@@ -98,6 +98,12 @@ async def favicon():
     return Response(status_code=204)
 
 
+@app.head("/favicon.ico")
+async def favicon_head():
+    from fastapi import Response
+    return Response(status_code=204)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     import logging
