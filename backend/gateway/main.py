@@ -80,6 +80,24 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.get("/")
+async def root():
+    return {
+        "service": "citysync-gateway",
+        "docs": "/docs",
+        "health": "/health",
+        "verification_health": "/verification/health",
+        "routing_health": "/routing/health",
+    }
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    # Avoid noisy 404s from browsers/uptime checkers.
+    from fastapi import Response
+    return Response(status_code=204)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     import logging
@@ -956,6 +974,8 @@ async def get_frequency_leaderboard():
 @app.get("/api/demo-tokens")
 async def get_demo_tokens():
     """Demo tokens for hackathon testing. Remove in production."""
+    if settings.app_env == "production" and not settings.enable_demo_tokens:
+        raise HTTPException(status_code=404, detail="Not found")
     from shared.auth import DEMO_TOKENS, create_token
     import secrets as s
     citizen_token = create_token(hmac_tokenize(s.token_hex(8)), role="citizen")

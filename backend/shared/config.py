@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     log_level: str = Field("INFO")
     cors_origins: str = Field("http://localhost:5173,http://localhost:3000")
 
+    # ── Demo / Unsafe endpoints ────────────────────────────────────────────────
+    # Keep disabled in production unless explicitly enabled.
+    enable_demo_tokens: bool = Field(False)
+
     # ── Bootstrapping ─────────────────────────────────────────────────────────
     # On free platforms (Render), pre-deploy hooks might be unavailable.
     # Enabling this runs init/seed in the background at startup, without blocking
