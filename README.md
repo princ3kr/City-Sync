@@ -173,3 +173,5 @@ For issues, questions, or contributions, please visit the GitHub repository: [ht
 - Raw GPS used only for dedup cluster check, never written to DB
 - Photos → AES-256 in MinIO, 10-min pre-signed URLs, 90-day TTL auto-delete
 - Webhook payloads → no PII, fuzzed GPS only
+
+- Demo (Live on render): https://city-sync-frontend.onrender.com
